@@ -1,18 +1,15 @@
-// uiHandler.js - Enhanced UI handling
-const readline = require('readline');
+// uiHandler-inquirer.js - Drop-in replacement for uiHandler.js using Inquirer.js
+const inquirer = require('inquirer');
 const chalk = require('chalk');
 const cliProgress = require('cli-progress');
 
 /**
- * Handles CLI user interface interactions
+ * Handles CLI user interface interactions using Inquirer.js
+ * Maintains the same interface as the original UIHandler for compatibility
  */
 class UIHandler {
     constructor() {
-        this.rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-
+        // Keep the progress bar implementation the same
         this.progressBar = new cliProgress.SingleBar({
             format: '{bar} {percentage}% | {value}/{total} | {status}',
             barCompleteChar: '\u2588',
@@ -49,47 +46,33 @@ class UIHandler {
      * @param {Array<{key: string, label: string, separator: boolean}>} options - Menu options
      */
     displayMenu(options) {
-        // First display all regular options
-        const regularOptions = options.filter(option => !option.separator && option.key !== 'b' && option.key !== 'q');
-        regularOptions.forEach(option => {
-            console.log(`${chalk.yellow(option.key)}. ${option.label}`);
-        });
-
-        // Add empty line before back/quit options if they exist
-        const specialOptions = options.filter(option => option.key === 'b' || option.key === 'q');
-        if (specialOptions.length > 0) {
-            console.log(); // Empty line as separator
-        }
-
-        // Display back/quit options
-        specialOptions.forEach(option => {
-            console.log(`${chalk.yellow(option.key)}. ${option.label}`);
-        });
+        // This is kept for compatibility but is not actually used for rendering
+        // with Inquirer.js - the menu is rendered by getSelection
     }
 
     /**
-     * Get user input
+     * Get user input with same interface as original
      * @param {string} question - Question to ask
      * @param {Function} validator - Optional validation function
      * @param {string} errorMessage - Optional error message for invalid input
      * @returns {Promise<string>} User input
      */
     async getUserInput(question, validator = null, errorMessage = 'Invalid input') {
-        return new Promise((resolve) => {
-            const promptUser = () => {
-                this.rl.question(chalk.green(`${question} `), (answer) => {
-                    // Validate input if validator is provided
-                    if (validator && !validator(answer)) {
-                        console.log(chalk.red(errorMessage));
-                        promptUser(); // Ask again
-                    } else {
-                        resolve(answer.trim());
-                    }
-                });
-            };
+        // Convert the validator function to Inquirer format
+        const inquirerValidator = validator ? 
+            (input) => validator(input) || errorMessage : 
+            () => true;
 
-            promptUser();
-        });
+        const result = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'answer',
+                message: question,
+                validate: inquirerValidator
+            }
+        ]);
+        
+        return result.answer.trim();
     }
 
     /**
@@ -98,16 +81,24 @@ class UIHandler {
      * @param {string} prompt - Prompt to display
      * @returns {Promise<any>} Selected value
      */
-    async getSelection(options, prompt = 'Enter your choice: ') {
-        const validKeys = options.map(option => option.key).filter(key => key !== '');
+    async getSelection(options, prompt = 'Enter your choice:') {
+        // Convert our option format to Inquirer format
+        const choices = options.map(option => ({
+            name: option.label,
+            value: option.value,
+            short: option.key
+        }));
         
-        const validator = (input) => validKeys.includes(input);
-        const errorMessage = `Please enter one of: ${validKeys.join(', ')}`;
+        const result = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'choice',
+                message: prompt,
+                choices: choices
+            }
+        ]);
         
-        const key = await this.getUserInput(prompt, validator, errorMessage);
-        const selected = options.find(option => option.key === key);
-        
-        return selected.value;
+        return result.choice;
     }
 
     /**
@@ -136,7 +127,14 @@ class UIHandler {
      * @returns {Promise<void>} Promise that resolves when user presses Enter
      */
     async pause(message = 'Press Enter to continue...') {
-        return this.getUserInput(`\n${message}`);
+        await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'continue',
+                message: `\n${message}`,
+                prefix: ''
+            }
+        ]);
     }
 
     /**
@@ -145,8 +143,16 @@ class UIHandler {
      * @returns {Promise<boolean>} Whether the user confirmed
      */
     async confirm(message) {
-        const answer = await this.getUserInput(`${message} (yes/no): `);
-        return answer.toLowerCase() === 'yes';
+        const result = await inquirer.prompt([
+            {
+                type: 'confirm',
+                name: 'confirmed',
+                message: message,
+                default: false
+            }
+        ]);
+        
+        return result.confirmed;
     }
 
     /**
@@ -228,10 +234,10 @@ class UIHandler {
     }
 
     /**
-     * Close the readline interface
+     * Close the UI handler (for compatibility with original)
      */
     close() {
-        this.rl.close();
+        // No readline interface to close in this implementation
     }
 }
 
