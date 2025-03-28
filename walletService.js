@@ -144,17 +144,7 @@ class WalletService {
             }
 
             delete this.wallets[name];
-
-            if (Object.keys(this.wallets).length === 0) {
-                // Delete the file if no wallets remain
-                const exists = await this.fileExists(this.walletFile);
-                if (exists) {
-                    await fs.unlink(this.walletFile);
-                }
-            } else {
-                await this.saveWallets();
-            }
-
+            await this.saveWallets();
             return true;
         } catch (error) {
             ErrorHandler.handle(error, 'WalletService.removeWallet');
