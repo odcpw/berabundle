@@ -11,6 +11,11 @@ class RewardChecker {
             config.abis.rewardVaultFactory,
             this.provider
         );
+        this.bgtStaker = new ethers.Contract(
+            config.networks.berachain.bgtStakerAddress,
+            config.abis.bgtStaker,
+            this.provider
+        );
 
         // Caching
         this.tokenInfoCache = new Map();
@@ -334,8 +339,11 @@ class RewardChecker {
                 }
             }
 
-            if (vaultsWithStakes.length === 0) {
-                return rawData ? [] : "No active stakes found in any vault.";
+            // Check BGT Staker rewards
+            const bgtStakerRewards = await this.checkBGTStakerRewards(userAddress);
+
+            if (vaultsWithStakes.length === 0 && parseFloat(bgtStakerRewards) === 0) {
+                return rawData ? [] : "No active stakes found in any vault or BGT Staker.";
             }
 
             // If raw data is requested, return the vault data directly
@@ -345,6 +353,15 @@ class RewardChecker {
 
             // Format output for display
             let output = "Active Stakes:\n\n";
+            
+            // Add BGT Staker rewards if any
+            if (parseFloat(bgtStakerRewards) > 0) {
+                output += `BGT Staker:\n`;
+                output += `  Pending HONEY: ${parseFloat(bgtStakerRewards).toFixed(2)}\n`;
+                output += "──────────────────────────────────────────────────\n";
+            }
+
+            // Add vault rewards
             for (const vault of vaultsWithStakes) {
                 output += `Vault: ${vault.vaultAddress}\n`;
                 output += `  Staking: ${parseFloat(vault.userStake).toFixed(2)} ${vault.stakeToken.symbol} (Pool: ${parseFloat(vault.totalStake).toFixed(2)})\n`;
@@ -414,6 +431,21 @@ class RewardChecker {
             vaultCount: rewards.length,
             rewardsByToken
         };
+    }
+
+    /**
+     * Check claimable Honey rewards from BGT Staker
+     * @param {string} address - User wallet address
+     * @returns {Promise<string>} Formatted reward amount
+     */
+    async checkBGTStakerRewards(address) {
+        try {
+            const earned = await this.bgtStaker.earned(address);
+            return ethers.utils.formatEther(earned);
+        } catch (error) {
+            console.warn(`Warning: Could not check BGT Staker rewards for ${address}:`, error.message);
+            return "0";
+        }
     }
 }
 

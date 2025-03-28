@@ -9,6 +9,7 @@ const networks = {
         rpcUrl: process.env.RPC_URL || 'https://rpc.berachain.com',
         blockExplorer: 'https://explorer.berachain.com',
         factoryAddress: '0x94Ad6Ac84f6C6FbA8b8CCbD71d9f4f101def52a8',
+        bgtStakerAddress: '0x44F07Ce5AfeCbCC406e6beFD40cc2998eEb8c7C6',
     }
 };
 
@@ -53,6 +54,11 @@ const abis = {
         "function rewardToken() view returns (address)",
         "function getWhitelistedTokens() view returns (address[])",
         "function incentives(address token) view returns (uint256,uint256,uint256,address)"
+    ],
+
+    bgtStaker: [
+        "function getReward() external view returns (uint256)",
+        "function earned(address account) external view returns (uint256)"
     ],
 
     erc20: [
