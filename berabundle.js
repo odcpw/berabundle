@@ -265,7 +265,7 @@ async checkRewardsMenu() {
         this.uiHandler.clearScreen();
         console.log(`Checking rewards for ${name} (${address})...\n`);
 
-        this.uiHandler.startProgress(100, "Scanning vaults...");
+        this.uiHandler.startProgress(100, "Scanning vaults and BGT Staker...");
 
         const result = await this.rewardChecker.checkAllRewards(
             address, true, false,
@@ -351,8 +351,8 @@ async claimRewardsMenu() {
         this.uiHandler.stopProgress();
 
         // Filter rewards that are claimable
-        const claimableRewards = rewardInfo.filter(vault =>
-            vault.earned && parseFloat(vault.earned) > 0
+        const claimableRewards = rewardInfo.filter(item =>
+            item.earned && parseFloat(item.earned) > 0
         );
 
         if (claimableRewards.length === 0) {
@@ -468,8 +468,15 @@ async claimRewardsMenu() {
             console.log(JSON.stringify(bundle.bundleData, null, 2));
         }
 
+        // Show enhanced summary that includes BGT Staker info
         console.log("\nClaim bundle generated successfully!");
-        console.log(`Summary: ${bundle.summary.vaultCount} vaults, ${bundle.summary.totalRewards} total rewards`);
+        if (bundle.summary.hasBGTStaker) {
+            console.log(`Summary: ${bundle.summary.vaultCount} vaults + BGT Staker`);
+            console.log(`Rewards: ${bundle.summary.rewardSummary}`);
+        } else {
+            console.log(`Summary: ${bundle.summary.vaultCount} vaults`);
+            console.log(`Rewards: ${bundle.summary.rewardSummary}`);
+        }
 
         await this.uiHandler.pause();
     }

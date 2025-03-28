@@ -291,6 +291,39 @@ class RewardChecker {
     }
 
     /**
+     * Check BGT Staker for rewards
+     * @param {string} userAddress - User wallet address
+     * @returns {Promise<Object|null>} BGT Staker reward information
+     */
+    async checkBGTStakerDetailed(userAddress) {
+        try {
+            const earned = await this.retry(() => this.bgtStaker.earned(userAddress));
+            
+            if (earned.eq(0)) {
+                return null;
+            }
+            
+            // Get HONEY token info (assuming it's the reward token)
+            const honeyTokenInfo = { 
+                symbol: "HONEY", 
+                address: config.networks.berachain.honeyTokenAddress,
+                decimals: 18 
+            };
+            
+            return {
+                type: 'bgtStaker',
+                contractAddress: config.networks.berachain.bgtStakerAddress,
+                rewardToken: honeyTokenInfo,
+                earned: ethers.utils.formatUnits(earned, honeyTokenInfo.decimals),
+                rawEarned: earned
+            };
+        } catch (error) {
+            console.warn(`Warning: Could not check BGT Staker rewards for ${userAddress}:`, error.message);
+            return null;
+        }
+    }
+
+    /**
      * Check all rewards for a user
      * @param {string} userAddress - User wallet address
      * @param {boolean} includeIncentives - Whether to include incentive details
@@ -339,25 +372,42 @@ class RewardChecker {
                 }
             }
 
+            // Stop the progress bar before checking BGT Staker
+            if (progressCallback) {
+                progressCallback(vaults.length, vaults.length, "Vault checking complete");
+            }
+            
             // Check BGT Staker rewards
-            const bgtStakerRewards = await this.checkBGTStakerRewards(userAddress);
+            if (progressCallback) {
+                progressCallback(0, 100, "Checking BGT Staker rewards...");
+            }
+            
+            const bgtStakerRewards = await this.checkBGTStakerDetailed(userAddress);
+            let allRewards = [...vaultsWithStakes];
+            
+            if (bgtStakerRewards) {
+                allRewards.push(bgtStakerRewards);
+                if (progressCallback) {
+                    progressCallback(100, 100, "BGT Staker checking complete");
+                }
+            }
 
-            if (vaultsWithStakes.length === 0 && parseFloat(bgtStakerRewards) === 0) {
+            if (allRewards.length === 0) {
                 return rawData ? [] : "No active stakes found in any vault or BGT Staker.";
             }
 
             // If raw data is requested, return the vault data directly
             if (rawData) {
-                return vaultsWithStakes;
+                return allRewards;
             }
 
             // Format output for display
-            let output = "Active Stakes:\n\n";
+            let output = "Active Stakes and Rewards:\n\n";
             
             // Add BGT Staker rewards if any
-            if (parseFloat(bgtStakerRewards) > 0) {
+            if (bgtStakerRewards) {
                 output += `BGT Staker:\n`;
-                output += `  Pending HONEY: ${parseFloat(bgtStakerRewards).toFixed(2)}\n`;
+                output += `  Pending HONEY: ${parseFloat(bgtStakerRewards.earned).toFixed(2)}\n`;
                 output += "──────────────────────────────────────────────────\n";
             }
 
@@ -397,6 +447,7 @@ class RewardChecker {
             return {
                 totalRewards: 0,
                 vaultCount: 0,
+                hasBGTStakerRewards: false,
                 rewardsByToken: {}
             };
         }
@@ -404,17 +455,25 @@ class RewardChecker {
         // Calculate totals
         let totalRewards = ethers.BigNumber.from(0);
         const rewardsByToken = {};
+        let hasBGTStakerRewards = false;
+        let vaultCount = 0;
 
-        for (const vault of rewards) {
-            const tokenSymbol = vault.rewardToken.symbol;
-            const rawAmount = vault.rawEarned;
+        for (const item of rewards) {
+            const tokenSymbol = item.rewardToken.symbol;
+            const rawAmount = item.rawEarned;
 
             if (!rewardsByToken[tokenSymbol]) {
                 rewardsByToken[tokenSymbol] = {
                     amount: 0,
                     formatted: "0",
-                    token: vault.rewardToken
+                    token: item.rewardToken
                 };
+            }
+
+            if (item.type === 'bgtStaker') {
+                hasBGTStakerRewards = true;
+            } else {
+                vaultCount++;
             }
 
             if (tokenSymbol === "BGT") {
@@ -422,13 +481,14 @@ class RewardChecker {
             }
 
             // Add to token-specific total
-            rewardsByToken[tokenSymbol].amount += parseFloat(vault.earned);
+            rewardsByToken[tokenSymbol].amount += parseFloat(item.earned);
             rewardsByToken[tokenSymbol].formatted = rewardsByToken[tokenSymbol].amount.toFixed(4);
         }
 
         return {
             totalRewards: parseFloat(ethers.utils.formatEther(totalRewards)),
-            vaultCount: rewards.length,
+            vaultCount,
+            hasBGTStakerRewards,
             rewardsByToken
         };
     }

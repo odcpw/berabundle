@@ -10,6 +10,7 @@ const networks = {
         blockExplorer: 'https://explorer.berachain.com',
         factoryAddress: '0x94Ad6Ac84f6C6FbA8b8CCbD71d9f4f101def52a8',
         bgtStakerAddress: '0x44F07Ce5AfeCbCC406e6beFD40cc2998eEb8c7C6',
+        honeyTokenAddress: '0x7EeCA4205fF31f947EdBd49195a7A88E6A91161B', // Added HONEY token address
     }
 };
 
@@ -57,7 +58,7 @@ const abis = {
     ],
 
     bgtStaker: [
-        "function getReward() external view returns (uint256)",
+        "function getReward() external returns (uint256)",
         "function earned(address account) external view returns (uint256)"
     ],
 

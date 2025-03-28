@@ -47,33 +47,58 @@ class ClaimBundler {
         try {
             const claimPayloads = [];
 
-            // Process each vault with rewards
-            for (const vault of rewardInfo) {
-                if (parseFloat(vault.earned) > 0) {
-                    // Create interface for the getReward function
-                    const iface = new ethers.utils.Interface([
-                        "function getReward(address account, address recipient) external returns (uint256)"
-                    ]);
+            // Process each reward source (vaults and BGT Staker)
+            for (const item of rewardInfo) {
+                if (parseFloat(item.earned) > 0) {
+                    if (item.type === 'bgtStaker') {
+                        // Handle BGT Staker claim
+                        const iface = new ethers.utils.Interface([
+                            "function getReward() external returns (uint256)"
+                        ]);
 
-                    // Encode function call
-                    const data = iface.encodeFunctionData("getReward", [
-                        userAddress,
-                        recipientAddress
-                    ]);
+                        // Encode function call for BGT Staker (no parameters)
+                        const data = iface.encodeFunctionData("getReward", []);
 
-                    const payload = {
-                        to: vault.vaultAddress,
-                        data: data,
-                        value: "0x0",
-                        metadata: {
-                            vaultAddress: vault.vaultAddress,
-                            stakingToken: vault.stakeToken,
-                            rewardToken: vault.rewardToken,
-                            rewardAmount: vault.earned
-                        }
-                    };
+                        const payload = {
+                            to: item.contractAddress,
+                            data: data,
+                            value: "0x0",
+                            metadata: {
+                                type: 'bgtStaker',
+                                contractAddress: item.contractAddress,
+                                rewardToken: item.rewardToken,
+                                rewardAmount: item.earned
+                            }
+                        };
 
-                    claimPayloads.push(payload);
+                        claimPayloads.push(payload);
+                    } else {
+                        // Handle vault claim
+                        const iface = new ethers.utils.Interface([
+                            "function getReward(address account, address recipient) external returns (uint256)"
+                        ]);
+
+                        // Encode function call for vault
+                        const data = iface.encodeFunctionData("getReward", [
+                            userAddress,
+                            recipientAddress
+                        ]);
+
+                        const payload = {
+                            to: item.vaultAddress,
+                            data: data,
+                            value: "0x0",
+                            metadata: {
+                                type: 'vault',
+                                vaultAddress: item.vaultAddress,
+                                stakingToken: item.stakeToken,
+                                rewardToken: item.rewardToken,
+                                rewardAmount: item.earned
+                            }
+                        };
+
+                        claimPayloads.push(payload);
+                    }
                 }
             }
 
@@ -144,17 +169,22 @@ class ClaimBundler {
                     const chainId = '0x' + network.chainId.toString(16);
 
                     // Format as EOA transactions
-                    return payloadsWithGas.map(payload => ({
-                        to: payload.to,
-                        from: fromAddress,
-                        data: payload.data,
-                        value: payload.value || "0x0",
-                        gasLimit: payload.gasLimit,
-                        maxFeePerGas: config.gas.maxFeePerGas,
-                        maxPriorityFeePerGas: config.gas.maxPriorityFeePerGas,
-                        type: "0x2", // EIP-1559 transaction
-                        chainId
-                    }));
+                    return payloadsWithGas.map(payload => {
+                        if (!payload.to) {
+                            console.error("Error: Missing 'to' address in payload", payload);
+                        }
+                        return {
+                            to: payload.to,
+                            from: fromAddress,
+                            data: payload.data,
+                            value: payload.value || "0x0",
+                            gasLimit: payload.gasLimit,
+                            maxFeePerGas: config.gas.maxFeePerGas,
+                            maxPriorityFeePerGas: config.gas.maxPriorityFeePerGas,
+                            type: "0x2", // EIP-1559 transaction
+                            chainId
+                        };
+                    });
 
                 case OutputFormat.SAFE_SDK:
                     // Format for Safe SDK
@@ -172,7 +202,7 @@ class ClaimBundler {
                         chainId: config.networks.berachain.chainId,
                         createdAt: Date.now(),
                         meta: {
-                            name: `Claim rewards from ${payloads.length} vaults for ${name}`,
+                            name: `Claim rewards from ${payloads.length} sources for ${name}`,
                             description: `Generated by BeraBundle on ${new Date().toISOString()}`
                         },
                         transactions: payloads.map(payload => ({
@@ -239,26 +269,61 @@ class ClaimBundler {
             const formattedBundle = await this.formatTransactions(
                 payloads,
                 format,
-                    userAddress,
-                    name
+                userAddress,
+                name
             );
 
             // Save the bundle to a file
             const filepath = await this.saveBundle(formattedBundle, name, format);
 
-            // Calculate total rewards
-            let totalRewards = 0;
+            // Calculate stats for summary
+            let vaultCount = 0;
+            let hasBGTStaker = false;
+            let totalBGT = 0;
+            let totalHONEY = 0;
+            let rewardsByType = {}; // Track rewards by token symbol
+            
             for (const payload of payloads) {
-                totalRewards += parseFloat(payload.metadata.rewardAmount);
+                if (payload.metadata.type === 'bgtStaker') {
+                    hasBGTStaker = true;
+                    const symbol = payload.metadata.rewardToken.symbol;
+                    if (!rewardsByType[symbol]) {
+                        rewardsByType[symbol] = 0;
+                    }
+                    rewardsByType[symbol] += parseFloat(payload.metadata.rewardAmount);
+                    if (symbol === "HONEY") {
+                        totalHONEY += parseFloat(payload.metadata.rewardAmount);
+                    }
+                } else {
+                    vaultCount++;
+                    const symbol = payload.metadata.rewardToken.symbol;
+                    if (!rewardsByType[symbol]) {
+                        rewardsByType[symbol] = 0;
+                    }
+                    rewardsByType[symbol] += parseFloat(payload.metadata.rewardAmount);
+                    if (symbol === "BGT") {
+                        totalBGT += parseFloat(payload.metadata.rewardAmount);
+                    }
+                }
             }
+
+            // Format rewards by type for summary
+            const rewardSummary = Object.entries(rewardsByType)
+                .map(([symbol, amount]) => `${amount.toFixed(2)} ${symbol}`)
+                .join(", ");
 
             return {
                 success: true,
                 filepath,
                 bundleData: formattedBundle,
                 summary: {
-                    vaultCount: payloads.length,
-                    totalRewards: totalRewards.toFixed(4),
+                    vaultCount,
+                    hasBGTStaker,
+                    totalBGT: totalBGT.toFixed(2),
+                    totalHONEY: totalHONEY.toFixed(2),
+                    rewardsByType,
+                    rewardSummary,
+                    totalSources: payloads.length,
                     format
                 }
             };
