@@ -1,4 +1,4 @@
-// BeraBundle.js -  main application
+// BeraBundle.js - main application
 const { ethers } = require('ethers');
 const config = require('./config');
 const WalletService = require('./walletService');
@@ -50,12 +50,11 @@ class BeraBundle {
             this.uiHandler.clearScreen();
             this.uiHandler.displayHeader("BERACHAIN BUNDLE");
 
-            const options = [
+            const options = this.uiHandler.createMenuOptions([
                 { key: '1', label: 'Wallets', value: 'wallets' },
                 { key: '2', label: 'Check Rewards', value: 'check' },
-                { key: '3', label: 'Claim All Rewards', value: 'claim' },
-                { key: '4', label: 'Exit', value: 'exit' }
-            ];
+                { key: '3', label: 'Claim Rewards', value: 'claim' }
+            ], false, true, '', 'Exit');
 
             this.uiHandler.displayMenu(options);
             this.uiHandler.displayFooter();
@@ -72,7 +71,7 @@ class BeraBundle {
                 case 'claim':
                     await this.claimRewardsMenu();
                     break;
-                case 'exit':
+                case 'quit':
                     this.uiHandler.clearScreen();
                     console.log("Thank you for using BeraBundle!");
                     this.uiHandler.close();
@@ -94,11 +93,10 @@ class BeraBundle {
             const walletEntries = this.uiHandler.displayWallets(wallets);
 
             // Menu options
-            const options = [
+            const options = this.uiHandler.createMenuOptions([
                 { key: '1', label: 'Add Wallet', value: 'add' },
-                { key: '2', label: 'Remove Wallet', value: 'remove' },
-                { key: '3', label: 'Back to Main Menu', value: 'back' }
-            ];
+                { key: '2', label: 'Remove Wallet', value: 'remove' }
+            ], true, false);
 
             this.uiHandler.displayMenu(options);
             this.uiHandler.displayFooter();
@@ -129,14 +127,14 @@ class BeraBundle {
         const name = await this.uiHandler.getUserInput(
             "Enter wallet name:",
             input => input.trim() !== '',
-                                                               "Wallet name cannot be empty"
+            "Wallet name cannot be empty"
         );
 
         // Get wallet address
         const address = await this.uiHandler.getUserInput(
             "Enter wallet address:",
             input => WalletService.isValidAddress(input),
-                                                              "Invalid Ethereum address format"
+            "Invalid Ethereum address format"
         );
 
         // Add the wallet
@@ -193,73 +191,61 @@ class BeraBundle {
         await this.uiHandler.pause();
     }
 
-    /**
-     * Check rewards menu
-     */
-    async checkRewardsMenu() {
+/**
+ * Check rewards menu
+ */
+async checkRewardsMenu() {
+    this.uiHandler.clearScreen();
+    this.uiHandler.displayHeader("CHECK REWARDS");
+
+    // Get wallets but don't display them yet
+    const wallets = this.walletService.getWallets();
+    const walletEntries = Object.entries(wallets);
+
+    if (walletEntries.length === 0) {
+        console.log("\nNo wallets found. Please add a wallet first.");
+        await this.uiHandler.pause();
+        return;
+    }
+
+    // Display wallet options as part of the menu
+    console.log("\nCurrent Wallets:");
+    
+    // Create wallet options for the menu
+    const walletOptions = walletEntries.map(([name, address], index) => ({
+        key: (index + 1).toString(),
+        label: `${name} (${address})`,
+        value: { name, address }
+    }));
+
+    const options = this.uiHandler.createMenuOptions([
+        ...walletOptions,
+        { key: 'a', label: 'All Wallets', value: 'all' }
+    ]);
+
+    this.uiHandler.displayMenu(options);
+    this.uiHandler.displayFooter();
+
+    const choice = await this.uiHandler.getSelection(options);
+
+    if (choice === 'back') {
+        return;
+    }
+
+    if (choice === 'quit') {
+        process.exit(0);
+    }
+
+    if (choice === 'all') {
+        // Check all wallets
         this.uiHandler.clearScreen();
-        this.uiHandler.displayHeader("CHECK REWARDS");
+        console.log("Checking rewards for all wallets...\n");
 
-        // Display wallets
-        const wallets = this.walletService.getWallets();
-        const walletEntries = this.uiHandler.displayWallets(wallets);
+        for (const [name, address] of walletEntries) {
+            console.log(`\nWallet: ${name} (${address})`);
+            console.log("───────────────────────────────────────");
 
-        if (walletEntries.length === 0) {
-            console.log("No wallets found. Please add a wallet first.");
-            await this.uiHandler.pause();
-            return;
-        }
-
-        // Get wallet selection
-        const options = [
-            ...walletEntries.map(([name, address], index) => ({
-                key: (index + 1).toString(),
-                                                                  label: `${name} (${address})`,
-                                                                  value: { name, address }
-            })),
-            { key: 'a', label: 'All Wallets', value: 'all' },
-            { key: 'b', label: 'Back to Main Menu', value: 'back' }
-        ];
-
-        this.uiHandler.displayMenu(options);
-        this.uiHandler.displayFooter();
-
-        const choice = await this.uiHandler.getSelection(options);
-
-        if (choice === 'back') {
-            return;
-        }
-
-        if (choice === 'all') {
-            // Check all wallets
-            this.uiHandler.clearScreen();
-            console.log("Checking rewards for all wallets...\n");
-
-            for (const [name, address] of walletEntries) {
-                console.log(`\nWallet: ${name} (${address})`);
-                console.log("───────────────────────────────────────");
-
-                this.uiHandler.startProgress(100, `Checking rewards for ${name}...`);
-
-                const result = await this.rewardChecker.checkAllRewards(
-                    address, true, false,
-                    (current, total, status) => {
-                        const percentage = Math.floor((current / total) * 100);
-                        this.uiHandler.updateProgress(percentage, status);
-                    }
-                );
-
-                this.uiHandler.stopProgress();
-                console.log(result);
-            }
-        } else {
-            // Check specific wallet
-            const { name, address } = choice;
-
-            this.uiHandler.clearScreen();
-            console.log(`Checking rewards for ${name} (${address})...\n`);
-
-            this.uiHandler.startProgress(100, "Scanning vaults...");
+            this.uiHandler.startProgress(100, `Checking rewards for ${name}...`);
 
             const result = await this.rewardChecker.checkAllRewards(
                 address, true, false,
@@ -272,59 +258,76 @@ class BeraBundle {
             this.uiHandler.stopProgress();
             console.log(result);
         }
+    } else {
+        // Check specific wallet
+        const { name, address } = choice;
 
-        await this.uiHandler.pause();
-    }
-
-    /**
-     * Claim rewards menu
-     */
-    async claimRewardsMenu() {
         this.uiHandler.clearScreen();
-        this.uiHandler.displayHeader("CLAIM REWARDS");
+        console.log(`Checking rewards for ${name} (${address})...\n`);
 
-        // Display wallets
-        const wallets = this.walletService.getWallets();
-        const walletEntries = this.uiHandler.displayWallets(wallets);
+        this.uiHandler.startProgress(100, "Scanning vaults...");
 
-        if (walletEntries.length === 0) {
-            console.log("No wallets found. Please add a wallet first.");
-            await this.uiHandler.pause();
-            return;
-        }
-
-        // Get wallet selection
-        const options = [
-            ...walletEntries.map(([name, address], index) => ({
-                key: (index + 1).toString(),
-                                                                  label: `${name} (${address})`,
-                                                                  value: { name, address }
-            })),
-            { key: 'a', label: 'All Wallets', value: 'all' },
-            { key: 'b', label: 'Back to Main Menu', value: 'back' }
-        ];
-
-        this.uiHandler.displayMenu(options);
-        this.uiHandler.displayFooter();
-
-        const choice = await this.uiHandler.getSelection(options);
-
-        if (choice === 'back') {
-            return;
-        }
-
-        if (choice === 'all') {
-            // Process all wallets
-            for (const [name, address] of walletEntries) {
-                await this.processClaimForWallet(name, address);
+        const result = await this.rewardChecker.checkAllRewards(
+            address, true, false,
+            (current, total, status) => {
+                const percentage = Math.floor((current / total) * 100);
+                this.uiHandler.updateProgress(percentage, status);
             }
-        } else {
-            // Process specific wallet
-            const { name, address } = choice;
-            await this.processClaimForWallet(name, address);
-        }
+        );
+
+        this.uiHandler.stopProgress();
+        console.log(result);
     }
 
+    await this.uiHandler.pause();
+}
+
+/**
+ * Claim rewards menu
+ */
+async claimRewardsMenu() {
+    this.uiHandler.clearScreen();
+    this.uiHandler.displayHeader("CLAIM REWARDS");
+
+    // Get wallets but don't display them here
+    const wallets = this.walletService.getWallets();
+    const walletEntries = Object.entries(wallets);
+
+    if (walletEntries.length === 0) {
+        console.log("\nNo wallets found. Please add a wallet first.");
+        await this.uiHandler.pause();
+        return;
+    }
+
+    console.log("\nNote: Each wallet can only claim its own rewards.");
+    console.log("\nSelect a wallet to claim rewards:");
+
+    // Create wallet options for the menu
+    const walletOptions = walletEntries.map(([name, address], index) => ({
+        key: (index + 1).toString(),
+        label: `${name} (${address})`,
+        value: { name, address }
+    }));
+
+    const options = this.uiHandler.createMenuOptions(walletOptions);
+
+    this.uiHandler.displayMenu(options);
+    this.uiHandler.displayFooter();
+
+    const choice = await this.uiHandler.getSelection(options);
+
+    if (choice === 'back') {
+        return;
+    }
+
+    if (choice === 'quit') {
+        process.exit(0);
+    }
+
+    // Process specific wallet
+    const { name, address } = choice;
+    await this.processClaimForWallet(name, address);
+}
     /**
      * Process claim for a specific wallet
      * @param {string} name - Wallet name
@@ -349,7 +352,7 @@ class BeraBundle {
 
         // Filter rewards that are claimable
         const claimableRewards = rewardInfo.filter(vault =>
-        vault.earned && parseFloat(vault.earned) > 0
+            vault.earned && parseFloat(vault.earned) > 0
         );
 
         if (claimableRewards.length === 0) {
@@ -375,20 +378,24 @@ class BeraBundle {
 
         // Step 2: Select destination wallet
         console.log("\nSelect destination wallet:");
-        const recipientOptions = [
+        const recipientOptions = this.uiHandler.createMenuOptions([
             { key: '1', label: 'Same wallet (default)', value: address },
             { key: '2', label: 'Custom address', value: 'custom' }
-        ];
+        ], true, false);
 
         this.uiHandler.displayMenu(recipientOptions);
         const recipientChoice = await this.uiHandler.getSelection(recipientOptions);
+
+        if (recipientChoice === 'back') {
+            return;
+        }
 
         let recipient;
         if (recipientChoice === 'custom') {
             recipient = await this.uiHandler.getUserInput(
                 "Enter recipient address:",
                 input => WalletService.isValidAddress(input),
-                                                                  "Invalid Ethereum address format"
+                "Invalid Ethereum address format"
             );
         } else {
             recipient = recipientChoice;
@@ -396,26 +403,34 @@ class BeraBundle {
 
         // Step 3: Select transaction format
         console.log("\nSelect transaction format:");
-        const formatOptions = [
+        const formatOptions = this.uiHandler.createMenuOptions([
             { key: '1', label: 'EOA (Web3 Wallet / CLI)', value: OutputFormat.EOA },
             { key: '2', label: 'Safe SDK / CLI', value: OutputFormat.SAFE_SDK },
             { key: '3', label: 'Safe UI (Tx-Builder)', value: OutputFormat.SAFE_UI }
-        ];
+        ], true, false);
 
         this.uiHandler.displayMenu(formatOptions);
         const formatChoice = await this.uiHandler.getSelection(formatOptions);
 
+        if (formatChoice === 'back') {
+            return;
+        }
+
         // Step 4: Select output method
         console.log("\nSelect output method:");
-        const outputOptions = [
+        const outputOptions = this.uiHandler.createMenuOptions([
             { key: '1', label: 'Save to file', value: 'file' },
             { key: '2', label: 'Copy to clipboard', value: 'clipboard' },
             { key: '3', label: 'Display in console', value: 'console' },
             { key: '4', label: 'All of the above', value: 'all' }
-        ];
+        ], true, false);
 
         this.uiHandler.displayMenu(outputOptions);
         const outputChoice = await this.uiHandler.getSelection(outputOptions);
+
+        if (outputChoice === 'back') {
+            return;
+        }
 
         // Generate the claim bundle
         console.log("\nGenerating claim bundle...");
@@ -424,7 +439,7 @@ class BeraBundle {
             address,
             recipient,
             formatChoice,
-                name
+            name
         );
 
         if (!bundle.success) {

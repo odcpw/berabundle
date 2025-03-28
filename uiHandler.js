@@ -1,7 +1,7 @@
 // uiHandler.js - Enhanced UI handling
 const readline = require('readline');
-const chalk = require('chalk'); // You'll need to add this dependency
-const cliProgress = require('cli-progress'); // You'll need to add this dependency
+const chalk = require('chalk');
+const cliProgress = require('cli-progress');
 
 /**
  * Handles CLI user interface interactions
@@ -15,9 +15,9 @@ class UIHandler {
 
         this.progressBar = new cliProgress.SingleBar({
             format: '{bar} {percentage}% | {value}/{total} | {status}',
-                barCompleteChar: '\u2588',
-                barIncompleteChar: '\u2591',
-                hideCursor: true
+            barCompleteChar: '\u2588',
+            barIncompleteChar: '\u2591',
+            hideCursor: true
         });
     }
 
@@ -45,11 +45,24 @@ class UIHandler {
     }
 
     /**
-     * Display a menu
-     * @param {Array<{key: string, label: string}>} options - Menu options
+     * Display a menu with proper spacing
+     * @param {Array<{key: string, label: string, separator: boolean}>} options - Menu options
      */
     displayMenu(options) {
-        options.forEach(option => {
+        // First display all regular options
+        const regularOptions = options.filter(option => !option.separator && option.key !== 'b' && option.key !== 'q');
+        regularOptions.forEach(option => {
+            console.log(`${chalk.yellow(option.key)}. ${option.label}`);
+        });
+
+        // Add empty line before back/quit options if they exist
+        const specialOptions = options.filter(option => option.key === 'b' || option.key === 'q');
+        if (specialOptions.length > 0) {
+            console.log(); // Empty line as separator
+        }
+
+        // Display back/quit options
+        specialOptions.forEach(option => {
             console.log(`${chalk.yellow(option.key)}. ${option.label}`);
         });
     }
@@ -86,14 +99,14 @@ class UIHandler {
      * @returns {Promise<any>} Selected value
      */
     async getSelection(options, prompt = 'Enter your choice: ') {
-        const validKeys = options.map(option => option.key);
-
+        const validKeys = options.map(option => option.key).filter(key => key !== '');
+        
         const validator = (input) => validKeys.includes(input);
         const errorMessage = `Please enter one of: ${validKeys.join(', ')}`;
-
+        
         const key = await this.getUserInput(prompt, validator, errorMessage);
         const selected = options.find(option => option.key === key);
-
+        
         return selected.value;
     }
 
@@ -103,17 +116,17 @@ class UIHandler {
      */
     displayWallets(wallets) {
         console.log("\nCurrent Wallets:");
-
+        
         const walletEntries = Object.entries(wallets);
         if (walletEntries.length === 0) {
             console.log(chalk.yellow("No wallets found."));
             return walletEntries;
         }
-
+        
         walletEntries.forEach(([name, address], index) => {
             console.log(`${chalk.yellow(index + 1)}. ${chalk.white(name)} (${chalk.gray(address)})`);
         });
-
+        
         return walletEntries;
     }
 
@@ -171,10 +184,10 @@ class UIHandler {
         if (!rewards || rewards.length === 0) {
             return chalk.yellow("No rewards found.");
         }
-
+        
         let output = "";
         let totalRewards = 0;
-
+        
         rewards.forEach(vault => {
             if (parseFloat(vault.earned) > 0) {
                 output += `${chalk.white(vault.vaultAddress)}\n`;
@@ -182,13 +195,36 @@ class UIHandler {
                 totalRewards += parseFloat(vault.earned);
             }
         });
-
+        
         if (output === "") {
             return chalk.yellow("No rewards to claim.");
         }
-
+        
         output += chalk.cyan("\nTotal rewards: ") + chalk.green(`${totalRewards.toFixed(2)} BGT`);
         return output;
+    }
+
+    /**
+     * Create standardized menu options with Back and Quit
+     * @param {Array} regularOptions - Regular menu options
+     * @param {boolean} includeBack - Whether to include Back option
+     * @param {boolean} includeQuit - Whether to include Quit option
+     * @param {string} backLabel - Custom label for Back option
+     * @param {string} quitLabel - Custom label for Quit option
+     * @returns {Array} Complete menu options
+     */
+    createMenuOptions(regularOptions, includeBack = true, includeQuit = true, backLabel = 'Back to Main Menu', quitLabel = 'Quit') {
+        const options = [...regularOptions];
+        
+        if (includeBack) {
+            options.push({ key: 'b', label: backLabel, value: 'back' });
+        }
+        
+        if (includeQuit) {
+            options.push({ key: 'q', label: quitLabel, value: 'quit' });
+        }
+        
+        return options;
     }
 
     /**
@@ -197,6 +233,6 @@ class UIHandler {
     close() {
         this.rl.close();
     }
-     }
+}
 
-     module.exports = UIHandler;
+module.exports = UIHandler;
