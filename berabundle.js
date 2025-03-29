@@ -52,7 +52,7 @@ class BeraBundle {
 
             const options = this.uiHandler.createMenuOptions([
                 { key: '1', label: 'Wallets', value: 'wallets' },
-                { key: '2', label: 'Check Rewards', value: 'check' },
+                { key: '2', label: 'Check Rewards & Validator Boosts', value: 'check' },
                 { key: '3', label: 'Claim Rewards', value: 'claim' }
             ], false, true, '', 'Exit');
 
@@ -208,8 +208,88 @@ async checkRewardsMenu() {
         return;
     }
 
+    // Show reward check options
+    const checkOptions = this.uiHandler.createMenuOptions([
+        { key: '1', label: 'Check Rewards (Vaults & BGT Staker)', value: 'rewards' },
+        { key: '2', label: 'Check Validator Boosts', value: 'validators' },
+        { key: '3', label: 'Check Both', value: 'both' },
+        { key: '4', label: 'Update Metadata from GitHub', value: 'update_metadata' }
+    ]);
+
+    this.uiHandler.displayMenu(checkOptions);
+    const checkType = await this.uiHandler.getSelection(checkOptions);
+
+    if (checkType === 'back' || checkType === 'quit') {
+        return checkType === 'quit' ? process.exit(0) : undefined;
+    }
+    
+    if (checkType === 'update_metadata') {
+        // Show a submenu for metadata update options
+        this.uiHandler.clearScreen();
+        this.uiHandler.displayHeader("UPDATE METADATA");
+        
+        console.log("\nSelect what to update from GitHub:");
+        
+        const updateOptions = this.uiHandler.createMenuOptions([
+            { key: '1', label: 'Update All Metadata (Recommended)', value: 'update_all' },
+            { key: '2', label: 'Update Validator List Only', value: 'update_validators' },
+            { key: '3', label: 'Update Vaults & Tokens Only', value: 'update_vaults_tokens' }
+        ]);
+        
+        this.uiHandler.displayMenu(updateOptions);
+        this.uiHandler.displayFooter();
+        
+        const updateChoice = await this.uiHandler.getSelection(updateOptions);
+        
+        if (updateChoice === 'back') {
+            return await this.checkRewardsMenu(); // Go back to check rewards menu
+        }
+        
+        if (updateChoice === 'quit') {
+            process.exit(0);
+        }
+        
+        // Handle the update choice
+        this.uiHandler.clearScreen();
+        
+        if (updateChoice === 'update_all') {
+            console.log("Updating all metadata from GitHub...");
+            
+            this.uiHandler.startProgress(100, "Fetching all metadata...");
+            await this.rewardChecker.updateAllMetadata();
+            this.uiHandler.stopProgress();
+            
+            console.log("All metadata updated successfully!");
+        } 
+        else if (updateChoice === 'update_validators') {
+            console.log("Updating validator list from GitHub...");
+            
+            this.uiHandler.startProgress(100, "Fetching validators data...");
+            await this.rewardChecker.updateValidators();
+            this.uiHandler.stopProgress();
+            
+            console.log("Validator list updated successfully!");
+        } 
+        else if (updateChoice === 'update_vaults_tokens') {
+            console.log("Updating vaults and tokens from GitHub...");
+            
+            this.uiHandler.startProgress(100, "Fetching vaults and tokens data...");
+            await this.rewardChecker.updateVaultsAndTokens();
+            this.uiHandler.stopProgress();
+            
+            console.log("Vaults and tokens updated successfully!");
+        }
+        
+        await this.uiHandler.pause();
+        return await this.checkRewardsMenu(); // Go back to check rewards menu
+    }
+
+    // Now show wallet selection
+    this.uiHandler.clearScreen();
+    this.uiHandler.displayHeader(`CHECK ${checkType === 'rewards' ? 'REWARDS' : checkType === 'validators' ? 'VALIDATOR BOOSTS' : 'ALL INFORMATION'}`);
+
     // Display wallet options as part of the menu
-    console.log("\nCurrent Wallets:");
+    console.log("\nSelect Wallet:");
     
     // Create wallet options for the menu
     const walletOptions = walletEntries.map(([name, address], index) => ({
@@ -239,44 +319,95 @@ async checkRewardsMenu() {
     if (choice === 'all') {
         // Check all wallets
         this.uiHandler.clearScreen();
-        console.log("Checking rewards for all wallets...\n");
+        console.log(`Checking ${checkType === 'rewards' ? 'rewards' : checkType === 'validators' ? 'validator boosts' : 'all information'} for all wallets...\n`);
 
         for (const [name, address] of walletEntries) {
             console.log(`\nWallet: ${name} (${address})`);
             console.log("───────────────────────────────────────");
 
-            this.uiHandler.startProgress(100, `Checking rewards for ${name}...`);
+            this.uiHandler.startProgress(100, `Checking ${checkType === 'rewards' ? 'rewards' : checkType === 'validators' ? 'validator boosts' : 'information'} for ${name}...`);
 
-            const result = await this.rewardChecker.checkAllRewards(
-                address, true, false,
-                (current, total, status) => {
-                    const percentage = Math.floor((current / total) * 100);
-                    this.uiHandler.updateProgress(percentage, status);
-                }
-            );
-
-            this.uiHandler.stopProgress();
-            console.log(result);
+            if (checkType === 'rewards') {
+                const result = await this.rewardChecker.checkAllRewards(
+                    address, true, false,
+                    (current, total, status) => {
+                        const percentage = Math.floor((current / total) * 100);
+                        this.uiHandler.updateProgress(percentage, status);
+                    },
+                    false // Don't include validator boosts
+                );
+                this.uiHandler.stopProgress();
+                console.log(result);
+            } else if (checkType === 'validators') {
+                const result = await this.rewardChecker.checkValidatorBoosts(
+                    address, false,
+                    (current, total, status) => {
+                        const percentage = Math.floor((current / total) * 100);
+                        this.uiHandler.updateProgress(percentage, status);
+                    },
+                    false // Don't refresh validator list automatically
+                );
+                this.uiHandler.stopProgress();
+                console.log(result);
+            } else {
+                // Check both
+                const result = await this.rewardChecker.checkAllRewards(
+                    address, true, false,
+                    (current, total, status) => {
+                        const percentage = Math.floor((current / total) * 100);
+                        this.uiHandler.updateProgress(percentage, status);
+                    },
+                    true // Include validator boosts
+                );
+                this.uiHandler.stopProgress();
+                console.log(result);
+            }
         }
     } else {
         // Check specific wallet
         const { name, address } = choice;
 
         this.uiHandler.clearScreen();
-        console.log(`Checking rewards for ${name} (${address})...\n`);
+        console.log(`Checking ${checkType === 'rewards' ? 'rewards' : checkType === 'validators' ? 'validator boosts' : 'all information'} for ${name} (${address})...\n`);
 
-        this.uiHandler.startProgress(100, "Scanning vaults and BGT Staker...");
+        this.uiHandler.startProgress(100, checkType === 'rewards' ? "Scanning vaults and BGT Staker..." : 
+                                        checkType === 'validators' ? "Scanning validator boosts..." : 
+                                        "Scanning vaults, BGT Staker, and validator boosts...");
 
-        const result = await this.rewardChecker.checkAllRewards(
-            address, true, false,
-            (current, total, status) => {
-                const percentage = Math.floor((current / total) * 100);
-                this.uiHandler.updateProgress(percentage, status);
-            }
-        );
-
-        this.uiHandler.stopProgress();
-        console.log(result);
+        if (checkType === 'rewards') {
+            const result = await this.rewardChecker.checkAllRewards(
+                address, true, false,
+                (current, total, status) => {
+                    const percentage = Math.floor((current / total) * 100);
+                    this.uiHandler.updateProgress(percentage, status);
+                },
+                false // Don't include validator boosts
+            );
+            this.uiHandler.stopProgress();
+            console.log(result);
+        } else if (checkType === 'validators') {
+            const result = await this.rewardChecker.checkValidatorBoosts(
+                address, false,
+                (current, total, status) => {
+                    const percentage = Math.floor((current / total) * 100);
+                    this.uiHandler.updateProgress(percentage, status);
+                }
+            );
+            this.uiHandler.stopProgress();
+            console.log(result);
+        } else {
+            // Check both
+            const result = await this.rewardChecker.checkAllRewards(
+                address, true, false,
+                (current, total, status) => {
+                    const percentage = Math.floor((current / total) * 100);
+                    this.uiHandler.updateProgress(percentage, status);
+                },
+                true // Include validator boosts
+            );
+            this.uiHandler.stopProgress();
+            console.log(result);
+        }
     }
 
     await this.uiHandler.pause();
@@ -345,13 +476,17 @@ async claimRewardsMenu() {
             (current, total, status) => {
                 const percentage = Math.floor((current / total) * 100);
                 this.uiHandler.updateProgress(percentage, status);
-            }
+            },
+            false // Don't include validator boosts here
         );
 
         this.uiHandler.stopProgress();
 
+        // Handle the new format where we have rewards and validatorBoosts
+        const rewards = rewardInfo.rewards || rewardInfo;
+
         // Filter rewards that are claimable
-        const claimableRewards = rewardInfo.filter(item =>
+        const claimableRewards = rewards.filter(item =>
             item.earned && parseFloat(item.earned) > 0
         );
 

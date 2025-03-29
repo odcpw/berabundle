@@ -1,7 +1,6 @@
 // uiHandler-inquirer.js - Drop-in replacement for uiHandler.js using Inquirer.js
 const inquirer = require('inquirer');
 const chalk = require('chalk');
-const cliProgress = require('cli-progress');
 
 /**
  * Handles CLI user interface interactions using Inquirer.js
@@ -9,13 +8,14 @@ const cliProgress = require('cli-progress');
  */
 class UIHandler {
     constructor() {
-        // Keep the progress bar implementation the same
-        this.progressBar = new cliProgress.SingleBar({
-            format: '{bar} {percentage}% | {value}/{total} | {status}',
-            barCompleteChar: '\u2588',
-            barIncompleteChar: '\u2591',
-            hideCursor: true
-        });
+        // Create a simpler progress tracking object - no animated bar
+        this.progress = {
+            total: 0,
+            current: 0,
+            startTime: 0,
+            status: '',
+            active: false
+        };
     }
 
     /**
@@ -156,57 +156,157 @@ class UIHandler {
     }
 
     /**
-     * Start a progress bar
+     * Start a progress process (replaced progress bar with simple logging)
      * @param {number} total - Total steps
      * @param {string} status - Initial status
      */
     startProgress(total, status = 'Processing...') {
-        this.progressBar.start(total, 0, { status });
+        // Initialize progress tracking
+        this.progress = {
+            total: total,
+            current: 0,
+            startTime: Date.now(),
+            status: status,
+            active: true,
+            lastLoggedPercentage: 0
+        };
+        
+        // Log the start of the process
+        console.log(`\n[0%] ${status} (0/${total})`);
     }
 
     /**
-     * Update the progress bar
+     * Update the progress (replaced progress bar with simple logging)
      * @param {number} value - Current progress value
      * @param {string} status - Current status
      */
     updateProgress(value, status = null) {
-        const payload = status ? { status } : undefined;
-        this.progressBar.update(value, payload);
+        if (!this.progress.active) return;
+        
+        // Update progress tracking
+        this.progress.current = value;
+        if (status) {
+            this.progress.status = status;
+        }
+        
+        // Calculate percentage
+        const percentage = Math.round((value / this.progress.total) * 100);
+        
+        // Only log if percentage changed significantly (prevent excessive logging)
+        if (percentage - this.progress.lastLoggedPercentage >= 10 || percentage === 100) {
+            console.log(`[${percentage}%] ${this.progress.status} (${value}/${this.progress.total})`);
+            this.progress.lastLoggedPercentage = percentage;
+        }
     }
 
     /**
-     * Stop the progress bar
+     * Stop the progress tracking
      */
     stopProgress() {
-        this.progressBar.stop();
+        if (!this.progress.active) return;
+        
+        // Calculate final metrics
+        const duration = (Date.now() - this.progress.startTime) / 1000;
+        const percentage = Math.round((this.progress.current / this.progress.total) * 100);
+        
+        // Log completion
+        console.log(`\n✅ Completed: ${this.progress.current}/${this.progress.total} (${percentage}%) in ${duration.toFixed(1)}s - ${this.progress.status || 'Done'}\n`);
+        
+        // Mark as inactive
+        this.progress.active = false;
     }
 
     /**
      * Format a reward summary
-     * @param {Array} rewards - Rewards data
+     * @param {Array|Object} rewardsData - Rewards data (can be array of rewards or object with rewards and validatorBoosts)
      * @returns {string} Formatted summary
      */
-    formatRewardSummary(rewards) {
-        if (!rewards || rewards.length === 0) {
-            return chalk.yellow("No rewards found.");
+    formatRewardSummary(rewardsData) {
+        // Handle new format where we might have a combined object
+        const rewards = Array.isArray(rewardsData) ? rewardsData : (rewardsData.rewards || []);
+        const validatorBoosts = !Array.isArray(rewardsData) && rewardsData.validatorBoosts ? rewardsData.validatorBoosts : [];
+        
+        if ((!rewards || rewards.length === 0) && (!validatorBoosts || validatorBoosts.length === 0)) {
+            return chalk.yellow("No rewards or validator boosts found.");
         }
         
         let output = "";
-        let totalRewards = 0;
+        let totalBGTRewards = 0;
+        let totalHONEYRewards = 0;
+        let rewardsByToken = {};
         
-        rewards.forEach(vault => {
-            if (parseFloat(vault.earned) > 0) {
-                output += `${chalk.white(vault.vaultAddress)}\n`;
-                output += `  ${chalk.green(parseFloat(vault.earned).toFixed(2))} ${vault.rewardToken.symbol}\n`;
-                totalRewards += parseFloat(vault.earned);
-            }
-        });
-        
-        if (output === "") {
-            return chalk.yellow("No rewards to claim.");
+        // Process rewards
+        if (rewards && rewards.length > 0) {
+            output += chalk.cyan("Claimable Rewards:\n");
+            
+            rewards.forEach(item => {
+                if (parseFloat(item.earned) > 0) {
+                    const tokenSymbol = item.rewardToken.symbol;
+                    const amount = parseFloat(item.earned);
+                    
+                    if (!rewardsByToken[tokenSymbol]) {
+                        rewardsByToken[tokenSymbol] = 0;
+                    }
+                    rewardsByToken[tokenSymbol] += amount;
+                    
+                    if (tokenSymbol === 'BGT') {
+                        totalBGTRewards += amount;
+                    } else if (tokenSymbol === 'HONEY') {
+                        totalHONEYRewards += amount;
+                    }
+                    
+                    if (item.type === 'bgtStaker') {
+                        output += `${chalk.white('BGT Staker')}\n`;
+                    } else {
+                        output += `${chalk.white(item.vaultAddress)}\n`;
+                    }
+                    output += `  ${chalk.green(amount.toFixed(2))} ${tokenSymbol}\n`;
+                }
+            });
         }
         
-        output += chalk.cyan("\nTotal rewards: ") + chalk.green(`${totalRewards.toFixed(2)} BGT`);
+        // Process active validator boosts
+        if (validatorBoosts && validatorBoosts.activeBoosts && validatorBoosts.activeBoosts.length > 0) {
+            if (output) output += "\n";
+            output += chalk.cyan("Active Validator Boosts:\n");
+            
+            let totalActiveBoost = 0;
+            validatorBoosts.activeBoosts.forEach(validator => {
+                const boostAmount = parseFloat(validator.userBoostAmount);
+                totalActiveBoost += boostAmount;
+                
+                output += `${chalk.white(validator.name)} (${chalk.gray(validator.pubkey.substring(0, 10))}...)\n`;
+                output += `  ${chalk.blue(boostAmount.toFixed(2))} BGT (${chalk.blue(validator.share)}% share)\n`;
+            });
+            
+            output += chalk.cyan("\nTotal Active BGT Boosts: ") + chalk.blue(`${totalActiveBoost.toFixed(2)} BGT`);
+        }
+        
+        // Process queued validator boosts
+        if (validatorBoosts && validatorBoosts.queuedBoosts && validatorBoosts.queuedBoosts.length > 0) {
+            if (output) output += "\n";
+            output += chalk.cyan("Queued Validator Boosts (pending activation):\n");
+            
+            let totalQueuedBoost = 0;
+            validatorBoosts.queuedBoosts.forEach(validator => {
+                const queuedAmount = parseFloat(validator.queuedBoostAmount);
+                totalQueuedBoost += queuedAmount;
+                
+                output += `${chalk.white(validator.name)} (${chalk.gray(validator.pubkey.substring(0, 10))}...)\n`;
+                output += `  ${chalk.yellow(queuedAmount.toFixed(2))} BGT (queued)\n`;
+            });
+            
+            output += chalk.cyan("\nTotal Queued BGT Boosts: ") + chalk.yellow(`${totalQueuedBoost.toFixed(2)} BGT`);
+        }
+        
+        // Add token summary
+        if (Object.keys(rewardsByToken).length > 0) {
+            output += chalk.cyan("\n\nRewards Summary: ");
+            Object.entries(rewardsByToken).forEach(([symbol, amount]) => {
+                output += chalk.green(`${amount.toFixed(2)} ${symbol} `);
+            });
+        }
+        
         return output;
     }
 
