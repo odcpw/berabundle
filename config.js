@@ -11,6 +11,7 @@ const networks = {
         factoryAddress: '0x94Ad6Ac84f6C6FbA8b8CCbD71d9f4f101def52a8',
         bgtStakerAddress: '0x44F07Ce5AfeCbCC406e6beFD40cc2998eEb8c7C6',
         honeyTokenAddress: '0x7EeCA4205fF31f947EdBd49195a7A88E6A91161B', // Added HONEY token address
+        validatorBoostAddress: '0x656b95E550C07a9ffe548bd4085c72418Ceb1dba', // BGT token contract (for validator boosts)
     }
 };
 
@@ -60,6 +61,18 @@ const abis = {
     bgtStaker: [
         "function getReward() external returns (uint256)",
         "function earned(address account) external view returns (uint256)"
+    ],
+
+    validatorBoost: [
+        "function boosted(address account, bytes pubkey) external view returns (uint256)",
+        "function boosts(address account) external view returns (uint256)",
+        "function boostedQueue(address account, bytes pubkey) external view returns (uint256)",
+        "function queuedBoost(address account) external view returns (uint256)",
+        "function boostees(bytes pubkey) external view returns (uint256)",
+        "function queueBoost(bytes pubkey, uint128 amount) external",
+        "function cancelBoost(bytes pubkey, uint128 amount) external",
+        "function activateBoost(address user, bytes pubkey) external returns (bool)",
+        "function normalizedBoost(bytes pubkey) external view returns (uint256)"
     ],
 
     erc20: [
