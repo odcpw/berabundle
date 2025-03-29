@@ -19,4 +19,6 @@ Thumbs.db
 
 # Project specific
 output/
-wallets.json 
+wallets.json
+tokens.json
+validators.json 
