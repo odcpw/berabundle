@@ -162,35 +162,48 @@ class RewardChecker {
             try {
                 const cachedVaults = await this.loadVaultsMetadata();
                 if (cachedVaults && cachedVaults.length > 0) {
-                    console.log('Using cached vault information from file...');
+                    console.log('Using cached vault information from metadata/vaults.json...');
                     
-                    // Update cache with vaults from the file
-                    // Filter out any vaults with missing or invalid addresses
-                    const validVaults = cachedVaults.filter(vault => 
-                        vault.address && typeof vault.address === 'string' && vault.address.startsWith('0x')
-                    );
+                    // Filter for vaults with valid addresses needed for on-chain calls
+                    // Support both "address" and "vaultAddress" fields since the format can vary
+                    const validVaults = cachedVaults.filter(vault => {
+                        const address = vault.address || vault.vaultAddress;
+                        return address && typeof address === 'string' && address.startsWith('0x');
+                    });
                     
+                    // Only log if there are inactive vaults
+                    if (validVaults.length !== cachedVaults.length) {
+                        console.log(`Using ${validVaults.length}/${cachedVaults.length} vaults with valid addresses`);
+                    } else {
+                        console.log(`Found ${validVaults.length} valid vaults from metadata file`);
+                    }
+                    
+                    // Update in-memory cache with valid vaults
                     validVaults.forEach(vault => {
-                        if (!this.vaultCache.has(vault.address)) {
-                            this.vaultCache.set(vault.address, { 
+                        const address = vault.address || vault.vaultAddress;
+                        if (address && !this.vaultCache.has(address)) {
+                            this.vaultCache.set(address, { 
                                 lastCheck: 0,
-                                stakeTokenAddress: vault.stakeTokenAddress,
-                                rewardTokenAddress: vault.rewardTokenAddress,
-                                name: vault.name 
+                                stakeTokenAddress: vault.stakeTokenAddress || "",
+                                rewardTokenAddress: vault.rewardTokenAddress || "",
+                                name: vault.name || "Unknown Vault",
+                                protocol: vault.protocol || "",
+                                description: vault.description || ""
                             });
                         }
                     });
                     
                     this.lastVaultScan = Date.now();
-                    console.log(`Found ${validVaults.length} valid vaults in cache`);
-                    return validVaults.map(vault => vault.address);
+                    
+                    // IMPORTANT: We trust the downloaded vaults and don't need to query on-chain
+                    return validVaults.map(vault => vault.address || vault.vaultAddress);
                 }
             } catch (error) {
                 console.warn('Could not load cached vaults, falling back to on-chain query:', error.message);
             }
 
-            // If no cached vaults or cache is invalid, query on-chain
-            console.log('Scanning for vault contracts on-chain...');
+            // ONLY if we couldn't load from file, query on-chain
+            console.log('No valid metadata found. Scanning for vault contracts on-chain...');
             const count = await this.rewardVaultFactory.allVaultsLength();
             const vaults = [];
 
@@ -261,6 +274,7 @@ class RewardChecker {
         }
 
         try {
+            // Create contract instance to interact with the vault
             const vault = new ethers.Contract(
                 vaultAddress,
                 config.abis.rewardVault,
@@ -343,8 +357,14 @@ class RewardChecker {
             vaultInfo.lastCheck = Date.now();
             this.vaultCache.set(vaultAddress, vaultInfo);
 
+            // Get vault info from cache if available (for protocol, name, etc.)
+            const vaultMetadata = this.vaultCache.get(vaultAddress) || {};
+            
             return {
-                vaultAddress,
+                vaultAddress, // This is the actual contract address used for on-chain calls
+                address: vaultAddress, // Add this for compatibility with different field names
+                name: vaultMetadata.name || "", // Include the vault name if available
+                protocol: vaultMetadata.protocol || "", // Include protocol info if available
                 stakeToken: {
                     symbol: stakeTokenInfo.symbol,
                     address: stakeTokenAddress,
@@ -563,7 +583,11 @@ class RewardChecker {
 
             // Add vault rewards
             for (const vault of vaultsWithStakes) {
-                output += `Vault: ${vault.vaultAddress}\n`;
+                // Include protocol info if available
+                const protocolInfo = vault.protocol ? ` on ${vault.protocol}` : '';
+                const vaultName = vault.name || vault.vaultAddress;
+                
+                output += `Vault: ${vaultName}${protocolInfo}\n`;
                 output += `  Staking: ${parseFloat(vault.userStake).toFixed(2)} ${vault.stakeToken.symbol} (Pool: ${parseFloat(vault.totalStake).toFixed(2)})\n`;
                 output += `  Pool Share: ${vault.share.toFixed(2)}%\n`;
                 output += `  Pending ${vault.rewardToken.symbol}: ${parseFloat(vault.earned).toFixed(2)}\n`;
@@ -584,7 +608,6 @@ class RewardChecker {
                 
                 for (const validator of validatorBoosts.activeBoosts) {
                     output += `Validator: ${validator.name} (${validator.pubkey.substring(0, 10)}...)\n`;
-                    output += `  Description: ${validator.description}\n`;
                     output += `  Your Boost: ${parseFloat(validator.userBoostAmount).toFixed(2)} BGT\n`;
                     output += `  Total Boost: ${parseFloat(validator.totalBoost).toFixed(2)} BGT\n`;
                     output += `  Your Share: ${validator.share}%\n`;
@@ -598,7 +621,6 @@ class RewardChecker {
                 
                 for (const validator of validatorBoosts.queuedBoosts) {
                     output += `Validator: ${validator.name} (${validator.pubkey.substring(0, 10)}...)\n`;
-                    output += `  Description: ${validator.description}\n`;
                     output += `  Queued Boost: ${parseFloat(validator.queuedBoostAmount).toFixed(2)} BGT\n`;
                     output += `  Status: Queued - needs activation\n`;
                     output += "──────────────────────────────────────────────────\n";
@@ -735,10 +757,24 @@ class RewardChecker {
     async updateVaultsAndTokens() {
         try {
             console.log("Updating vaults and tokens from GitHub...");
-            await Promise.all([
-                this.loadVaultsMetadata(true),
-                this.loadTokensMetadata(true)
-            ]);
+            
+            // Don't use Promise.all - we want to see detailed logs for each step
+            console.log("Fetching vaults from GitHub...");
+            const vaults = await this.loadVaultsMetadata(true);
+            console.log(`Loaded ${vaults.length} vault(s) from GitHub or cache`);
+            
+            console.log("Fetching tokens from GitHub...");
+            const tokens = await this.loadTokensMetadata(true);
+            console.log(`Loaded ${Object.keys(tokens).length} token(s) from GitHub or cache`);
+            
+            // Verify the data was saved correctly
+            try {
+                await fs.access(config.paths.vaultsFile);
+                console.log(`Verified vault file exists at ${config.paths.vaultsFile}`);
+            } catch (err) {
+                console.error(`Warning: Vault file does not exist after update: ${err.message}`);
+            }
+            
             console.log("Vaults and tokens updated successfully.");
             return true;
         } catch (error) {
@@ -753,13 +789,23 @@ class RewardChecker {
      */
     async updateAllMetadata() {
         try {
-            console.log("Updating all metadata from GitHub...");
-            await Promise.all([
-                this.loadValidatorMetadata(true),
-                this.loadVaultsMetadata(true),
-                this.loadTokensMetadata(true)
-            ]);
-            console.log("All metadata updated successfully.");
+            console.log("Updating vaults, validators, and tokens from GitHub...");
+            
+            // Download each type sequentially with specific messaging
+            console.log("\nStep 1: Downloading validators list...");
+            const validators = await this.loadValidatorMetadata(true);
+            console.log(`✓ Downloaded ${validators.length} validators`);
+            
+            console.log("\nStep 2: Downloading vaults information...");
+            const vaults = await this.loadVaultsMetadata(true);
+            console.log(`✓ Downloaded vaults information (${vaults.length} entries)`);
+            
+            console.log("\nStep 3: Downloading tokens information...");
+            const tokens = await this.loadTokensMetadata(true);
+            const tokenCount = Object.keys(tokens).length;
+            console.log(`✓ Downloaded ${tokenCount} tokens`);
+            
+            console.log("\nAll metadata successfully updated and saved to metadata directory.");
             return true;
         } catch (error) {
             console.error(`Error updating metadata: ${error.message}`);
@@ -773,23 +819,48 @@ class RewardChecker {
      * @returns {Promise<string>} Response data
      */
     fetchUrl(url) {
+        // Extract filename for cleaner logs
+        const filename = url.split('/').pop();
+        console.log(`Fetching ${filename}...`);
+        
         return new Promise((resolve, reject) => {
-            https.get(url, (response) => {
+            const req = https.get(url, (response) => {
                 if (response.statusCode !== 200) {
-                    reject(new Error(`Request failed with status code ${response.statusCode}`));
+                    const errorMsg = `Request failed with status code ${response.statusCode} (${response.statusMessage})`;
+                    console.error(`Error fetching ${filename}: ${errorMsg}`);
+                    reject(new Error(errorMsg));
                     return;
                 }
 
+                // Simple status confirmation 
+                console.log(`Connected to ${filename} successfully`);
+                
                 let data = '';
                 response.on('data', (chunk) => {
                     data += chunk;
                 });
 
                 response.on('end', () => {
-                    resolve(data);
+                    console.log(`Downloaded ${(data.length/1024).toFixed(1)} KB of data`);
+                    try {
+                        // Try to parse as JSON to validate it early
+                        JSON.parse(data);
+                        resolve(data);
+                    } catch (e) {
+                        console.error(`Error: Downloaded data is not valid JSON`);
+                        reject(new Error(`Downloaded data is not valid JSON: ${e.message}`));
+                    }
                 });
             }).on('error', (error) => {
+                console.error(`Network error fetching ${filename}: ${error.message}`);
                 reject(error);
+            });
+
+            // Set a timeout of 15 seconds
+            req.setTimeout(15000, () => {
+                req.destroy();
+                console.error(`Request timed out for ${filename}`);
+                reject(new Error('Request timed out after 15 seconds'));
             });
         });
     }
@@ -800,8 +871,35 @@ class RewardChecker {
      */
     async fetchValidatorsFromGitHub() {
         try {
-            const url = 'https://raw.githubusercontent.com/berachain/metadata/main/src/validators/mainnet.json';
-            const data = await this.fetchUrl(url);
+            // Try multiple URLs in order of preference
+            const urls = [
+                'https://raw.githubusercontent.com/berachain/metadata/refs/heads/main/src/validators/mainnet.json',
+                'https://raw.githubusercontent.com/berachain/metadata/main/src/validators/mainnet.json',
+                'https://raw.githubusercontent.com/berachain/metadata/master/src/validators/mainnet.json'
+            ];
+            
+            let data = null;
+            let errorMsg = '';
+            
+            // Try each URL until one works
+            for (const url of urls) {
+                try {
+                    console.log(`Attempting to fetch validators from: ${url}`);
+                    data = await this.fetchUrl(url);
+                    console.log(`Successfully fetched validators from: ${url}`);
+                    break; // Exit the loop if successful
+                } catch (err) {
+                    errorMsg += `\n- ${url}: ${err.message}`;
+                    console.warn(`Failed to fetch from ${url}: ${err.message}`);
+                    // Continue to the next URL
+                }
+            }
+            
+            // If all URLs failed
+            if (!data) {
+                throw new Error(`All validator data URLs failed: ${errorMsg}`);
+            }
+            
             const parsed = JSON.parse(data);
 
             // Transform the data to our simplified format (just id and name)
@@ -825,38 +923,99 @@ class RewardChecker {
      */
     async fetchVaultsFromGitHub() {
         try {
-            const url = 'https://raw.githubusercontent.com/berachain/metadata/main/src/vaults/mainnet.json';
-            const data = await this.fetchUrl(url);
-            const parsed = JSON.parse(data);
-
-            // Transform the data to our simplified format
-            if (parsed && parsed.vaults && Array.isArray(parsed.vaults)) {
-                const allVaults = parsed.vaults;
-                const validVaults = allVaults
-                    .filter(vault => 
-                        vault && 
-                        vault.address && 
-                        typeof vault.address === 'string' && 
-                        vault.address.startsWith('0x'))
-                    .map(vault => ({
-                        address: vault.address,
-                        stakeTokenAddress: (vault.stakeTokenAddress && typeof vault.stakeTokenAddress === 'string' && vault.stakeTokenAddress.startsWith('0x')) 
-                            ? vault.stakeTokenAddress 
-                            : "",
-                        rewardTokenAddress: (vault.rewardTokenAddress && typeof vault.rewardTokenAddress === 'string' && vault.rewardTokenAddress.startsWith('0x')) 
-                            ? vault.rewardTokenAddress 
-                            : "",
-                        name: vault.name || "Unknown Vault"
-                    }));
-                
-                if (validVaults.length !== allVaults.length) {
-                    console.warn(`Filtered out ${allVaults.length - validVaults.length} invalid vault addresses from GitHub data`);
+            // Try multiple URLs in order of preference
+            const urls = [
+                'https://raw.githubusercontent.com/berachain/metadata/refs/heads/main/src/vaults/mainnet.json',
+                'https://raw.githubusercontent.com/berachain/metadata/main/src/vaults/mainnet.json',
+                'https://raw.githubusercontent.com/berachain/metadata/master/src/vaults/mainnet.json'
+            ];
+            
+            let data = null;
+            let errorMsg = '';
+            
+            // Try each URL until one works
+            for (const url of urls) {
+                try {
+                    console.log(`Attempting to fetch vaults from: ${url}`);
+                    data = await this.fetchUrl(url);
+                    console.log(`Successfully fetched vaults from: ${url}`);
+                    break; // Exit the loop if successful
+                } catch (err) {
+                    errorMsg += `\n- ${url}: ${err.message}`;
+                    console.warn(`Failed to fetch from ${url}: ${err.message}`);
+                    // Continue to the next URL
                 }
-                
-                return validVaults;
             }
             
-            throw new Error('Invalid vaults data format');
+            // If all URLs failed
+            if (!data) {
+                throw new Error(`All vault data URLs failed: ${errorMsg}`);
+            }
+            
+            // Parse the JSON data
+            const parsed = JSON.parse(data);
+            
+            // First, save the original data as-is to a backup file for debugging
+            try {
+                const backupPath = path.join(config.paths.metadataDir, 'vaults_original.json');
+                await fs.writeFile(backupPath, data);
+                console.log(`Saved original vault data to ${backupPath}`);
+            } catch (error) {
+                console.warn(`Could not save backup of original vault data: ${error.message}`);
+            }
+            
+            // Check for the expected structure
+            if (!parsed || !parsed.vaults || !Array.isArray(parsed.vaults)) {
+                console.error('Error: Unexpected vault data format. Expected { vaults: [...] }');
+                console.log(`Data has properties: ${Object.keys(parsed || {}).join(', ')}`);
+                throw new Error('Invalid vaults data format');
+            }
+            
+            // Get the vaults array directly from the response
+            const allVaults = parsed.vaults;
+            console.log(`Found ${allVaults.length} vault entries in GitHub data`);
+            
+            // Save the vaults array to the actual vaults.json file
+            try {
+                // Simple sanity check - make sure we're saving something reasonable
+                if (allVaults.length > 0) {
+                    // Save the raw vaults array directly
+                    await fs.writeFile(config.paths.vaultsFile, JSON.stringify(allVaults, null, 2));
+                    console.log(`✓ Successfully saved ${allVaults.length} vaults to metadata/vaults.json`);
+                    
+                    // Now check which vaults have valid addresses (either address or vaultAddress)
+                    const validVaults = allVaults.filter(vault => {
+                        const address = vault.address || vault.vaultAddress;
+                        return address && typeof address === 'string' && address.startsWith('0x');
+                    });
+                    
+                    // For each vault, make sure it has both address and vaultAddress fields (for compatibility)
+                    allVaults.forEach(vault => {
+                        if (!vault.address && vault.vaultAddress) {
+                            vault.address = vault.vaultAddress;
+                        }
+                        if (!vault.vaultAddress && vault.address) {
+                            vault.vaultAddress = vault.address;
+                        }
+                    });
+                    
+                    const invalidCount = allVaults.length - validVaults.length;
+                    if (invalidCount > 0) {
+                        console.log(`Note: ${validVaults.length}/${allVaults.length} vaults have valid addresses for on-chain interaction`);
+                    } else {
+                        console.log(`All ${allVaults.length} vaults have valid addresses`);
+                    }
+                    
+                    return allVaults; // Return all vaults, not just valid ones
+                } else {
+                    console.warn('Warning: No vault entries found in GitHub data');
+                    await fs.writeFile(config.paths.vaultsFile, "[]");
+                    return [];
+                }
+            } catch (error) {
+                console.error(`Error saving vaults to file: ${error.message}`);
+                throw error; // Propagate the error
+            }
         } catch (error) {
             console.warn(`Warning: Could not fetch vaults from GitHub: ${error.message}`);
             return [];
@@ -869,8 +1028,35 @@ class RewardChecker {
      */
     async fetchTokensFromGitHub() {
         try {
-            const url = 'https://raw.githubusercontent.com/berachain/metadata/main/src/tokens/mainnet.json';
-            const data = await this.fetchUrl(url);
+            // Try multiple URLs in order of preference
+            const urls = [
+                'https://raw.githubusercontent.com/berachain/metadata/refs/heads/main/src/tokens/mainnet.json',
+                'https://raw.githubusercontent.com/berachain/metadata/main/src/tokens/mainnet.json',
+                'https://raw.githubusercontent.com/berachain/metadata/master/src/tokens/mainnet.json'
+            ];
+            
+            let data = null;
+            let errorMsg = '';
+            
+            // Try each URL until one works
+            for (const url of urls) {
+                try {
+                    console.log(`Attempting to fetch tokens from: ${url}`);
+                    data = await this.fetchUrl(url);
+                    console.log(`Successfully fetched tokens from: ${url}`);
+                    break; // Exit the loop if successful
+                } catch (err) {
+                    errorMsg += `\n- ${url}: ${err.message}`;
+                    console.warn(`Failed to fetch from ${url}: ${err.message}`);
+                    // Continue to the next URL
+                }
+            }
+            
+            // If all URLs failed
+            if (!data) {
+                throw new Error(`All token data URLs failed: ${errorMsg}`);
+            }
+            
             const parsed = JSON.parse(data);
 
             // Transform the data to our simplified format
@@ -909,15 +1095,30 @@ class RewardChecker {
     }
 
     /**
+     * Ensure metadata directory exists
+     */
+    async ensureMetadataDirExists() {
+        try {
+            await fs.mkdir(config.paths.metadataDir, { recursive: true });
+            return true;
+        } catch (error) {
+            console.warn(`Warning: Could not create metadata directory: ${error.message}`);
+            return false;
+        }
+    }
+    
+    /**
      * Update local validator metadata file
      * @param {Array<Object>} validators - Array of validator information
      * @returns {Promise<boolean>} Success status
      */
     async updateValidatorMetadataFile(validators) {
         try {
-            const validatorsFilePath = path.join(__dirname, 'validators.json');
-            await fs.writeFile(validatorsFilePath, JSON.stringify(validators, null, 2));
-            console.log('Validator metadata updated successfully');
+            // Ensure metadata directory exists
+            await this.ensureMetadataDirExists();
+            
+            await fs.writeFile(config.paths.validatorsFile, JSON.stringify(validators, null, 2));
+            console.log('Validator metadata updated successfully to metadata/validators.json');
             return true;
         } catch (error) {
             console.warn(`Warning: Could not update validator metadata file: ${error.message}`);
@@ -932,9 +1133,11 @@ class RewardChecker {
      */
     async updateVaultsMetadataFile(vaults) {
         try {
-            const vaultsFilePath = path.join(__dirname, 'vaults.json');
-            await fs.writeFile(vaultsFilePath, JSON.stringify(vaults, null, 2));
-            console.log('Vaults metadata updated successfully');
+            // Ensure metadata directory exists
+            await this.ensureMetadataDirExists();
+            
+            await fs.writeFile(config.paths.vaultsFile, JSON.stringify(vaults, null, 2));
+            console.log('Vaults metadata updated successfully to metadata/vaults.json');
             return true;
         } catch (error) {
             console.warn(`Warning: Could not update vaults metadata file: ${error.message}`);
@@ -949,9 +1152,11 @@ class RewardChecker {
      */
     async updateTokensMetadataFile(tokens) {
         try {
-            const tokensFilePath = path.join(__dirname, 'tokens.json');
-            await fs.writeFile(tokensFilePath, JSON.stringify(tokens, null, 2));
-            console.log('Tokens metadata updated successfully');
+            // Ensure metadata directory exists
+            await this.ensureMetadataDirExists();
+            
+            await fs.writeFile(config.paths.tokensFile, JSON.stringify(tokens, null, 2));
+            console.log('Tokens metadata updated successfully to metadata/tokens.json');
             return true;
         } catch (error) {
             console.warn(`Warning: Could not update tokens metadata file: ${error.message}`);
@@ -966,12 +1171,13 @@ class RewardChecker {
      */
     async loadValidatorMetadata(forceUpdate = false) {
         try {
-            const validatorsFilePath = path.join(__dirname, 'validators.json');
+            // Ensure metadata directory exists
+            await this.ensureMetadataDirExists();
             
             // Check if the file exists
             let fileExists = false;
             try {
-                await fs.access(validatorsFilePath);
+                await fs.access(config.paths.validatorsFile);
                 fileExists = true;
             } catch (error) {
                 fileExists = false;
@@ -993,7 +1199,7 @@ class RewardChecker {
             }
             
             // Read from local file
-            const data = await fs.readFile(validatorsFilePath, 'utf8');
+            const data = await fs.readFile(config.paths.validatorsFile, 'utf8');
             return JSON.parse(data);
         } catch (error) {
             console.warn(`Warning: Could not load validator metadata: ${error.message}`);
@@ -1008,12 +1214,13 @@ class RewardChecker {
      */
     async loadVaultsMetadata(forceUpdate = false) {
         try {
-            const vaultsFilePath = path.join(__dirname, 'vaults.json');
+            // Ensure metadata directory exists
+            await this.ensureMetadataDirExists();
             
             // Check if the file exists
             let fileExists = false;
             try {
-                await fs.access(vaultsFilePath);
+                await fs.access(config.paths.vaultsFile);
                 fileExists = true;
             } catch (error) {
                 fileExists = false;
@@ -1022,35 +1229,55 @@ class RewardChecker {
             // Fetch from GitHub if file doesn't exist or update is forced
             if (!fileExists || forceUpdate) {
                 console.log('Fetching vaults from GitHub...');
+                // This will download and save the vaults data from GitHub
                 const vaults = await this.fetchVaultsFromGitHub();
-                if (vaults.length > 0) {
-                    await this.updateVaultsMetadataFile(vaults);
-                    return vaults;
-                }
-                
-                // If fetch fails and no local file exists, return empty array
-                if (!fileExists) {
-                    return [];
-                }
+                console.log(`Fetched ${vaults.length} vaults from GitHub`);
+                return vaults;
             }
             
             // Read from local file
-            const data = await fs.readFile(vaultsFilePath, 'utf8');
-            const vaults = JSON.parse(data);
+            console.log(`Reading vaults from local file: ${config.paths.vaultsFile}`);
+            const data = await fs.readFile(config.paths.vaultsFile, 'utf8');
             
-            // Validate vault addresses before returning
-            const validVaults = vaults.filter(vault => 
-                vault && 
-                vault.address && 
-                typeof vault.address === 'string' && 
-                vault.address.startsWith('0x')
-            );
-            
-            if (validVaults.length !== vaults.length) {
-                console.warn(`Filtered out ${vaults.length - validVaults.length} invalid vault addresses from local cache`);
+            try {
+                const vaults = JSON.parse(data);
+                
+                // Validate parsed data is an array
+                if (!Array.isArray(vaults)) {
+                    console.warn(`Warning: Vaults file does not contain a valid array, got: ${typeof vaults}`);
+                    return [];
+                }
+                
+                console.log(`Loaded ${vaults.length} vaults from metadata file`);
+                
+                // Add compatibility fields to each vault
+                vaults.forEach(vault => {
+                    if (!vault.address && vault.vaultAddress) {
+                        vault.address = vault.vaultAddress;
+                    }
+                    if (!vault.vaultAddress && vault.address) {
+                        vault.vaultAddress = vault.address;
+                    }
+                });
+                
+                // Calculate how many vaults have valid addresses for on-chain interaction
+                const validForChainVaults = vaults.filter(vault => {
+                    const address = vault.address || vault.vaultAddress;
+                    return address && typeof address === 'string' && address.startsWith('0x');
+                });
+                
+                if (validForChainVaults.length < vaults.length) {
+                    console.log(`Note: ${validForChainVaults.length}/${vaults.length} vaults have valid addresses for on-chain interaction`);
+                }
+                
+                // Return all vaults - filtering happens when checking for rewards
+                return vaults;
+            } catch (parseError) {
+                console.error(`Error parsing vaults file: ${parseError.message}`);
+                // If there's an error parsing, try fetching fresh data
+                console.log('Trying to fetch fresh vault data due to parsing error...');
+                return await this.fetchVaultsFromGitHub();
             }
-            
-            return validVaults;
         } catch (error) {
             console.warn(`Warning: Could not load vaults metadata: ${error.message}`);
             return [];
@@ -1064,12 +1291,13 @@ class RewardChecker {
      */
     async loadTokensMetadata(forceUpdate = false) {
         try {
-            const tokensFilePath = path.join(__dirname, 'tokens.json');
+            // Ensure metadata directory exists
+            await this.ensureMetadataDirExists();
             
             // Check if the file exists
             let fileExists = false;
             try {
-                await fs.access(tokensFilePath);
+                await fs.access(config.paths.tokensFile);
                 fileExists = true;
             } catch (error) {
                 fileExists = false;
@@ -1091,7 +1319,7 @@ class RewardChecker {
             }
             
             // Read from local file
-            const data = await fs.readFile(tokensFilePath, 'utf8');
+            const data = await fs.readFile(config.paths.tokensFile, 'utf8');
             const tokens = JSON.parse(data);
             
             // Filter out any invalid token addresses
@@ -1124,7 +1352,11 @@ class RewardChecker {
      * @returns {Object} Validator information
      */
     findValidatorByPubkey(pubkey, validators) {
-        const validator = validators.find(v => v.id.toLowerCase() === pubkey.toLowerCase());
+        // Try to find by id first (for older data format)
+        let validator = validators.find(v => 
+            (v.id && v.id.toLowerCase() === pubkey.toLowerCase()) || 
+            (v.pubkey && v.pubkey.toLowerCase() === pubkey.toLowerCase())
+        );
         
         if (validator) {
             return validator;
@@ -1132,6 +1364,7 @@ class RewardChecker {
 
         // If not found, return a generic validator object
         return {
+            pubkey: pubkey,
             id: pubkey,
             name: "Unknown Validator"
         };
@@ -1164,18 +1397,27 @@ class RewardChecker {
             for (const validator of validatorMetadata) {
                 try {
                     // Check if user has boosted this validator
+                    // Use validator.pubkey if available, otherwise fall back to validator.id
+                    const validatorKey = validator.pubkey || validator.id;
+                    
+                    // Skip if no valid key is found
+                    if (!validatorKey) {
+                        console.warn(`Warning: Validator missing both pubkey and id fields: ${validator.name || 'Unknown'}`);
+                        continue;
+                    }
+                    
                     const boostAmount = await this.retry(() => 
-                        this.validatorBoost.boosted(userAddress, validator.id)
+                        this.validatorBoost.boosted(userAddress, validatorKey)
                     );
                     
                     // If boost amount is greater than 0, add to results
                     if (!boostAmount.eq(0)) {
                         const totalValidatorBoost = await this.retry(() => 
-                            this.validatorBoost.boostees(validator.id)
+                            this.validatorBoost.boostees(validatorKey)
                         );
                         
                         results.push({
-                            pubkey: validator.id,
+                            pubkey: validatorKey,
                             name: validator.name,
                             userBoostAmount: ethers.utils.formatEther(boostAmount),
                             totalBoost: ethers.utils.formatEther(totalValidatorBoost),
@@ -1187,7 +1429,7 @@ class RewardChecker {
                         });
                     }
                 } catch (error) {
-                    console.warn(`Warning: Could not check boost amount for validator ${validator.id}: ${error.message}`);
+                    console.warn(`Warning: Could not check boost amount for validator ${validator.name || validatorKey || 'unknown'}: ${error.message}`);
                 }
             }
             
@@ -1224,21 +1466,30 @@ class RewardChecker {
             for (const validator of validatorMetadata) {
                 try {
                     // Check if user has queued boost for this validator
+                    // Use validator.pubkey if available, otherwise fall back to validator.id
+                    const validatorKey = validator.pubkey || validator.id;
+                    
+                    // Skip if no valid key is found
+                    if (!validatorKey) {
+                        console.warn(`Warning: Validator missing both pubkey and id fields: ${validator.name || 'Unknown'}`);
+                        continue;
+                    }
+                    
                     const queuedAmount = await this.retry(() => 
-                        this.validatorBoost.boostedQueue(userAddress, validator.id)
+                        this.validatorBoost.boostedQueue(userAddress, validatorKey)
                     );
                     
                     // If queued amount is greater than 0, add to results
                     if (!queuedAmount.eq(0)) {
                         results.push({
-                            pubkey: validator.id,
+                            pubkey: validatorKey,
                             name: validator.name,
                             queuedBoostAmount: ethers.utils.formatEther(queuedAmount),
                             status: "queued"
                         });
                     }
                 } catch (error) {
-                    console.warn(`Warning: Could not check queued boost for validator ${validator.id}: ${error.message}`);
+                    console.warn(`Warning: Could not check queued boost for validator ${validator.name || validatorKey || 'unknown'}: ${error.message}`);
                 }
             }
             

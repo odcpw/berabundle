@@ -84,13 +84,21 @@ class ClaimBundler {
                             recipientAddress
                         ]);
 
+                        // Get the vault address, supporting both field names
+                        const vaultAddress = item.vaultAddress || item.address;
+                        
+                        if (!vaultAddress) {
+                            console.warn(`Warning: Missing vault address in reward item:`, item);
+                            continue; // Skip this item
+                        }
+                        
                         const payload = {
-                            to: item.vaultAddress,
+                            to: vaultAddress,
                             data: data,
                             value: "0x0",
                             metadata: {
                                 type: 'vault',
-                                vaultAddress: item.vaultAddress,
+                                vaultAddress: vaultAddress,
                                 stakingToken: item.stakeToken,
                                 rewardToken: item.rewardToken,
                                 rewardAmount: item.earned
@@ -240,7 +248,7 @@ class ClaimBundler {
             const filepath = path.join(config.paths.outputDir, filename);
 
             await fs.writeFile(filepath, JSON.stringify(bundle, null, 2));
-            console.log(`Bundle saved to ${filepath}`);
+            // We don't log here because berabundle.js will display a message
 
             return filepath;
         } catch (error) {
@@ -318,7 +326,8 @@ class ClaimBundler {
                 
                 if (redelegationResult.success && redelegationResult.transactions.length > 0) {
                     redelegationPayloads = redelegationResult.transactions;
-                    console.log(`Added ${redelegationPayloads.length} redelegation transactions`);
+                    // More concise log message
+                    console.log(`Added ${redelegationPayloads.length} redelegation transaction(s)`);
                 }
             }
 
