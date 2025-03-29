@@ -20,5 +20,8 @@ Thumbs.db
 # Project specific
 output/
 wallets.json
-tokens.json
-validators.json 
+
+# Metadata cache files
+# Comment these out if you want to include default metadata in the repo
+# tokens.json
+# validators.json 
