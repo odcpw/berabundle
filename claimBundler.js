@@ -231,7 +231,12 @@ class ClaimBundler {
      */
     async saveBundle(bundle, name, format) {
         try {
-            const filename = `claims_${name.toLowerCase()}_${format}_${Date.now()}.json`;
+            // Create a human-readable timestamp
+            const now = new Date();
+            const dateStr = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19); // Format: YYYY-MM-DD_HH-MM-SS
+            
+            // Create filename with human-readable date first, followed by Unix timestamp for uniqueness
+            const filename = `claims_${dateStr}_${name.toLowerCase()}_${format}.json`;
             const filepath = path.join(config.paths.outputDir, filename);
 
             await fs.writeFile(filepath, JSON.stringify(bundle, null, 2));
@@ -251,9 +256,10 @@ class ClaimBundler {
      * @param {string} recipientAddress - Recipient address for rewards
      * @param {string} format - Output format
      * @param {string} name - Name identifier for the bundle
+     * @param {Object} options - Additional options for claim bundle
      * @returns {Promise<Object>} Bundle information
      */
-    async generateClaimBundle(rewardInfo, userAddress, recipientAddress, format, name) {
+    async generateClaimBundle(rewardInfo, userAddress, recipientAddress, format, name, options = {}) {
         try {
             // Create basic claim payloads
             const payloads = this.createClaimPayloads(rewardInfo, userAddress, recipientAddress);
@@ -264,17 +270,6 @@ class ClaimBundler {
                     message: "No rewards to claim"
                 };
             }
-
-            // Format transactions based on the selected format
-            const formattedBundle = await this.formatTransactions(
-                payloads,
-                format,
-                userAddress,
-                name
-            );
-
-            // Save the bundle to a file
-            const filepath = await this.saveBundle(formattedBundle, name, format);
 
             // Calculate stats for summary
             let vaultCount = 0;
@@ -307,6 +302,40 @@ class ClaimBundler {
                 }
             }
 
+            // Check if redelegation is requested
+            let redelegationPayloads = [];
+            if (options.redelegate && totalBGT > 0) {
+                // Import RedelegationManager only when needed to avoid circular dependencies
+                const RedelegationManager = require('./redelegationManager');
+                const redelegationManager = new RedelegationManager(this.provider);
+                await redelegationManager.initialize();
+                
+                // Create redelegation transactions
+                const redelegationResult = redelegationManager.createRedelegationTransactions(
+                    userAddress, 
+                    totalBGT
+                );
+                
+                if (redelegationResult.success && redelegationResult.transactions.length > 0) {
+                    redelegationPayloads = redelegationResult.transactions;
+                    console.log(`Added ${redelegationPayloads.length} redelegation transactions`);
+                }
+            }
+
+            // Combine claim and redelegation payloads
+            const allPayloads = [...payloads, ...redelegationPayloads];
+
+            // Format transactions based on the selected format
+            const formattedBundle = await this.formatTransactions(
+                allPayloads,
+                format,
+                userAddress,
+                name
+            );
+
+            // Save the bundle to a file
+            const filepath = await this.saveBundle(formattedBundle, name, format);
+
             // Format rewards by type for summary
             const rewardSummary = Object.entries(rewardsByType)
                 .map(([symbol, amount]) => `${amount.toFixed(2)} ${symbol}`)
@@ -324,7 +353,10 @@ class ClaimBundler {
                     rewardsByType,
                     rewardSummary,
                     totalSources: payloads.length,
-                    format
+                    redelegationCount: redelegationPayloads.length,
+                    totalTransactions: allPayloads.length,
+                    format,
+                    includesRedelegation: redelegationPayloads.length > 0
                 }
             };
         } catch (error) {
