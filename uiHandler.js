@@ -82,19 +82,41 @@ class UIHandler {
      * @returns {Promise<any>} Selected value
      */
     async getSelection(options, prompt = 'Enter your choice:') {
-        // Convert our option format to Inquirer format
-        const choices = options.map(option => ({
-            name: option.label,
-            value: option.value,
-            short: option.key
-        }));
+        // Filter out spacers and convert our option format to Inquirer format
+        const choices = options
+            .filter(option => option.value !== 'spacer') // Remove spacers
+            .map(option => ({
+                name: option.label,
+                value: option.value,
+                short: option.key
+            }));
+        
+        // Add spacers as separators
+        let inquirerChoices = [];
+        let lastWasSeparator = false;
+        
+        options.forEach(option => {
+            if (option.value === 'spacer') {
+                if (!lastWasSeparator) {
+                    inquirerChoices.push(new inquirer.Separator());
+                    lastWasSeparator = true;
+                }
+            } else {
+                inquirerChoices.push({
+                    name: option.label,
+                    value: option.value,
+                    short: option.key
+                });
+                lastWasSeparator = false;
+            }
+        });
         
         const result = await inquirer.prompt([
             {
                 type: 'list',
                 name: 'choice',
                 message: prompt,
-                choices: choices
+                choices: inquirerChoices
             }
         ]);
         
@@ -333,6 +355,64 @@ class UIHandler {
         return options;
     }
 
+    /**
+     * Get a single key press from the user
+     * Uses inquirer to simulate key press functionality
+     * @returns {Promise<string>} Key that was pressed
+     */
+    async getKey() {
+        // We'll use inquirer's list to simulate key capture
+        // This is a workaround since Inquirer doesn't directly support raw keypress events
+        
+        const keyMap = {
+            up: 'UP',
+            down: 'DOWN',
+            left: 'LEFT',
+            right: 'RIGHT',
+            space: ' ',
+            enter: 'ENTER',
+            escape: 'ESCAPE',
+            i: 'i',
+            I: 'I',
+            pageup: 'PAGEUP',
+            pagedown: 'PAGEDOWN',
+            backspace: 'BACKSPACE',
+            '1': '1',
+            '2': '2',
+            '3': '3',
+            '4': '4',
+            '5': '5',
+            '6': '6',
+            '7': '7',
+            '8': '8',
+            '9': '9',
+        };
+        
+        const keyChoices = [
+            { name: '↑ (Up)', value: 'UP' },
+            { name: '↓ (Down)', value: 'DOWN' },
+            { name: 'Space (Toggle selection)', value: ' ' },
+            { name: 'i (View details)', value: 'i' },
+            { name: 'Enter (Confirm)', value: 'ENTER' },
+            { name: 'Escape (Cancel)', value: 'ESCAPE' },
+            { name: 'PgUp (Previous page)', value: 'PAGEUP' },
+            { name: 'PgDn (Next page)', value: 'PAGEDOWN' },
+            { name: '1-9 (Select by number)', value: '1' },
+        ];
+        
+        const prompt = {
+            type: 'list',
+            name: 'key',
+            message: 'Press a key to navigate:',
+            choices: keyChoices,
+            // Hide the list UI to make it less intrusive
+            pageSize: 1
+        };
+        
+        const result = await inquirer.prompt([prompt]);
+        return result.key;
+    }
+    
     /**
      * Close the UI handler (for compatibility with original)
      */

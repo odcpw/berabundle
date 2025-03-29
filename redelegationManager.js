@@ -177,6 +177,35 @@ class RedelegationManager {
     }
 
     /**
+     * Validate if a validator pubkey is properly formatted
+     * @param {string} pubkey - The validator pubkey to validate
+     * @returns {boolean} - Whether the pubkey is valid
+     */
+    isValidValidatorPubkey(pubkey) {
+        // Basic validation - should be a hex string without 0x prefix
+        // That properly represents a BLS pubkey for the validator
+        return (
+            typeof pubkey === 'string' &&
+            pubkey.length > 0 &&
+            // Allow both with and without 0x prefix for compatibility
+            /^(0x)?[0-9a-fA-F]+$/.test(pubkey)
+        );
+    }
+
+    /**
+     * Format validator pubkey to ensure it's properly encoded for contract calls
+     * @param {string} pubkey - The validator pubkey to format
+     * @returns {string} - The formatted pubkey
+     */
+    formatValidatorPubkey(pubkey) {
+        // Ensure the pubkey has a 0x prefix for the contract call
+        if (!pubkey.startsWith('0x')) {
+            return '0x' + pubkey;
+        }
+        return pubkey;
+    }
+
+    /**
      * Create redelegation transactions
      */
     createRedelegationTransactions(userAddress, totalBGTAmount) {
@@ -188,14 +217,36 @@ class RedelegationManager {
             }
 
             const transactions = [];
-            const bgAmount = ethers.utils.parseUnits(totalBGTAmount.toString(), 18);
+            // Parse the amount and ensure it's a valid number
+            const validAmount = parseFloat(totalBGTAmount) || 0;
+            if (validAmount <= 0) {
+                return { transactions: [], success: false, message: "Invalid BGT amount for redelegation" };
+            }
+            
+            const bgAmount = ethers.utils.parseUnits(validAmount.toString(), 18);
             
             // Create a transaction for each validator based on allocation percentage
             for (const validator of userPrefs.validators) {
                 const allocation = userPrefs.allocations[validator.pubkey];
-                if (!allocation) continue;
+                if (!allocation || allocation <= 0) continue;
                 
+                // Verify validator pubkey is valid
+                if (!this.isValidValidatorPubkey(validator.pubkey)) {
+                    console.warn(`Warning: Invalid validator pubkey format for ${validator.name || 'Unknown'}: ${validator.pubkey}`);
+                    continue;
+                }
+                
+                // Calculate amount based on allocation percentage (fix rounding issues)
                 const amount = bgAmount.mul(Math.floor(allocation * 100)).div(10000);
+                
+                // Skip if amount is 0
+                if (amount.isZero()) {
+                    console.warn(`Warning: Allocation results in zero amount for validator ${validator.name || 'Unknown'}`);
+                    continue;
+                }
+                
+                // Ensure the pubkey is properly formatted with 0x prefix
+                const formattedPubkey = this.formatValidatorPubkey(validator.pubkey);
                 
                 // Create the transaction payload
                 const iface = new ethers.utils.Interface([
@@ -204,7 +255,7 @@ class RedelegationManager {
                 
                 // Encode function call for validator boosting
                 const data = iface.encodeFunctionData("queueBoost", [
-                    validator.pubkey,
+                    formattedPubkey,
                     amount
                 ]);
                 
@@ -212,9 +263,11 @@ class RedelegationManager {
                     to: config.networks.berachain.validatorBoostAddress,
                     data: data,
                     value: "0x0",
+                    // Set a manual gasLimit to avoid estimation issues
+                    gasLimit: "0x100000", // 1,048,576 gas, higher than default
                     metadata: {
                         type: 'validatorBoost',
-                        validatorPubkey: validator.pubkey,
+                        validatorPubkey: formattedPubkey,
                         validatorName: validator.name || 'Unknown',
                         allocation: allocation,
                         amount: ethers.utils.formatUnits(amount, 18)
@@ -224,11 +277,20 @@ class RedelegationManager {
                 transactions.push(payload);
             }
             
+            // Provide warning if we created no transactions
+            if (transactions.length === 0) {
+                return { 
+                    transactions: [], 
+                    success: false, 
+                    message: "No valid redelegation transactions could be created" 
+                };
+            }
+            
             return { 
                 transactions, 
                 success: true,
                 summary: {
-                    totalValidators: userPrefs.validators.length,
+                    totalValidators: transactions.length,
                     totalAmount: totalBGTAmount
                 }
             };
