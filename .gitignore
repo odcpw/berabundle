@@ -21,7 +21,7 @@ Thumbs.db
 output/
 wallets.json
 
-# Metadata cache files
-# Comment these out if you want to include default metadata in the repo
-# tokens.json
-# validators.json 
+# Metadata cache files - users will get fresh metadata when they run the app
+tokens.json
+validators.json
+vaults.json 
