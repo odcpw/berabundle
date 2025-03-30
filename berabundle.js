@@ -1,16 +1,16 @@
 // BeraBundle.js - main application
 const { ethers } = require('ethers');
 const config = require('./config');
-const WalletService = require('./walletService');
-const UIHandler = require('./uiHandler');
-const RewardChecker = require('./rewardChecker');
-const { ClaimBundler } = require('./claimBundler');
-const { ErrorHandler } = require('./errorHandler');
-const RedelegationManager = require('./redelegationManager');
-const SafeCliService = require('./safeCliService');
-const MenuManager = require('./menuManager');
-const TransactionService = require('./transactionService');
-const FSHelpers = require('./fsHelpers');
+const WalletService = require('./services/walletService');
+const UIHandler = require('./ui/uiHandler');
+const RewardChecker = require('./services/rewardChecker');
+const { ClaimBundler } = require('./services/claimBundler');
+const { ErrorHandler } = require('./utils/errorHandler');
+const RedelegationManager = require('./services/redelegationManager');
+const SafeCliService = require('./services/safeCliService');
+const MenuManager = require('./ui/menuManager');
+const TransactionService = require('./services/transactionService');
+const FSHelpers = require('./utils/fsHelpers');
 
 /**
  * Main BeraBundle application class

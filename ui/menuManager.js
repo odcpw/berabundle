@@ -1,10 +1,10 @@
 // menuManager.js - Manages menu navigation and user flows
-const config = require('./config');
-const { ErrorHandler } = require('./errorHandler');
+const config = require('../config');
+const { ErrorHandler } = require('../utils/errorHandler');
 const fs = require('fs').promises;
 const path = require('path');
 const inquirer = require('inquirer');
-const { OutputFormat } = require('./claimBundler');
+const { OutputFormat } = require('../services/claimBundler');
 
 /**
  * Manages all menu flows and user interactions

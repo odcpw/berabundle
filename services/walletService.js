@@ -2,8 +2,8 @@
 const { ethers } = require('ethers');
 const fs = require('fs').promises;
 const crypto = require('crypto');
-const config = require('./config');
-const { ErrorHandler } = require('./errorHandler');
+const config = require('../config');
+const { ErrorHandler } = require('../utils/errorHandler');
 const SecureStorage = require('./secureStorage');
 
 /**
