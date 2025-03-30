@@ -431,42 +431,36 @@ class RewardChecker {
     
     /**
      * Check Delegation Rewards contract for claimable rewards
-     * This implementation uses a hardcoded approach for now until we can 
-     * determine the correct function to check available rewards.
+     * This implementation always returns a reward option since there's no reliable
+     * way to check if delegation rewards are available before claiming.
      * 
      * @param {string} userAddress - User wallet address
-     * @returns {Promise<Object|null>} Delegation rewards information
+     * @returns {Promise<Object>} Delegation rewards information (always returned)
      */
     async checkDelegationRewardsDetailed(userAddress) {
-        try {
-            // Since the earned() function is failing, we'll implement a different approach
-            // For now, return a small amount to indicate rewards might be available
-            // The user can always attempt to claim and see if it works
-
-            // Create a dummy value - we'll use the special marker value of 0.000001 HONEY
-            // to indicate we can't determine the exact amount
-            const dummyValue = ethers.utils.parseEther("0.000001");
+        // The delegation rewards contract does not provide a way to check available rewards
+        // It likely uses a Merkle proof system that requires off-chain data
+        // Instead, we'll always show this as an option and let users try claiming
             
-            // The delegation rewards are typically in HONEY token
-            const honeyTokenInfo = { 
-                symbol: "HONEY", 
-                address: config.networks.berachain.honeyTokenAddress,
-                decimals: 18 
-            };
+        // Create a zero value so it doesn't affect calculations
+        const zeroValue = ethers.BigNumber.from("0");
             
-            return {
-                type: 'delegationRewards',
-                name: 'Bera Chain Validators',
-                contractAddress: config.networks.berachain.delegationRewardsAddress,
-                rewardToken: honeyTokenInfo,
-                earned: ethers.utils.formatUnits(dummyValue, honeyTokenInfo.decimals),
-                rawEarned: dummyValue,
-                isPotentialReward: true // Mark this as a potential reward rather than a confirmed amount
-            };
-        } catch (error) {
-            console.warn(`Warning: Could not check Delegation Rewards for ${userAddress}:`, error.message);
-            return null;
-        }
+        // The delegation rewards are typically in HONEY token
+        const honeyTokenInfo = { 
+            symbol: "HONEY", 
+            address: config.networks.berachain.honeyTokenAddress,
+            decimals: 18 
+        };
+            
+        return {
+            type: 'delegationRewards',
+            name: 'Bera Chain Validators',
+            contractAddress: config.networks.berachain.delegationRewardsAddress,
+            rewardToken: honeyTokenInfo,
+            earned: "0",
+            rawEarned: zeroValue,
+            alwaysAttemptClaim: true // Special flag indicating to always try claiming
+        };
     }
 
     /**
@@ -583,22 +577,17 @@ class RewardChecker {
                 console.log("No BGT Staker rewards found.");
             }
             
-            // Check Delegation Rewards
-            console.log(`Checking Delegation Rewards for ${userAddress}...`);
+            // Always include Delegation Rewards option
+            console.log(`Adding Delegation Rewards option for ${userAddress}...`);
             if (progressCallback) {
-                progressCallback(60, 100, "Checking Delegation Rewards...");
+                progressCallback(60, 100, "Adding Delegation Rewards option...");
             }
             
             const delegationRewards = await this.checkDelegationRewardsDetailed(userAddress);
-            
-            if (delegationRewards) {
-                allRewards.push(delegationRewards);
-                console.log(`Found Delegation Rewards: ${delegationRewards.earned} HONEY`);
-                if (progressCallback) {
-                    progressCallback(100, 100, "Delegation Rewards checking complete");
-                }
-            } else {
-                console.log("No Delegation Rewards found.");
+            allRewards.push(delegationRewards);
+            console.log(`Added Delegation Rewards option (amount unknown)`);
+            if (progressCallback) {
+                progressCallback(100, 100, "Delegation Rewards option added");
             }
             
             // Check validator boosts if requested
@@ -645,16 +634,11 @@ class RewardChecker {
                 output += "──────────────────────────────────────────────────\n";
             }
             
-            // Add Delegation Rewards if any
+            // Always add Delegation Rewards option
             if (delegationRewards) {
                 output += `Delegation Rewards (Bera Chain Validators):\n`;
-                // Check if this is just a potential reward marker
-                if (delegationRewards.isPotentialReward) {
-                    output += `  Potential HONEY rewards available (amount unknown)\n`;
-                    output += `  Try claiming to see if rewards are available\n`;
-                } else {
-                    output += `  Pending HONEY: ${parseFloat(delegationRewards.earned).toFixed(2)}\n`;
-                }
+                output += `  HONEY: Amount unknown (must try claiming to check)\n`;
+                output += `  Note: This contract doesn't provide a way to check rewards before claiming\n`;
                 output += "──────────────────────────────────────────────────\n";
             }
 
@@ -822,14 +806,9 @@ class RewardChecker {
      * @returns {Promise<string>} Formatted reward amount
      */
     async checkDelegationRewards(address) {
-        try {
-            // Since we can't reliably check the exact amount, we'll return a small marker value
-            // to indicate that rewards might be available
-            return "0.000001"; // Special marker value
-        } catch (error) {
-            console.warn(`Warning: Could not check Delegation Rewards for ${address}:`, error.message);
-            return "0";
-        }
+        // Cannot determine reward amount from the contract
+        // Always return zero, but still show as an option when calling checkAllRewards
+        return "0";
     }
     
     /**

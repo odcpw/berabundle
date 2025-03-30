@@ -53,9 +53,10 @@ class ClaimBundler {
         try {
             const claimPayloads = [];
 
-            // Process each reward source (vaults and BGT Staker)
+            // Process each reward source (vaults, BGT Staker, Delegation Rewards)
             for (const item of rewardInfo) {
-                if (parseFloat(item.earned) > 0) {
+                // For delegation rewards, include regardless of earned amount since we can't check it
+                if (parseFloat(item.earned) > 0 || item.alwaysAttemptClaim) {
                     if (item.type === 'bgtStaker') {
                         // Handle BGT Staker claim
                         const iface = new ethers.utils.Interface([

@@ -87,8 +87,9 @@ const abis = {
     ],
 
     delegationRewards: [
-        "function claim() external returns (uint256)",
-        "function earned(address account) external view returns (uint256)"
+        "function claim() external returns (uint256)"
+        // Note: There is no reliable way to check available rewards
+        // The contract likely uses a Merkle proof system that requires off-chain data
     ],
 
     validatorBoost: [

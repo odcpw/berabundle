@@ -282,9 +282,10 @@ class UIHandler {
                         output += `  ${chalk.green(amount.toFixed(2))} ${tokenSymbol}\n`;
                     } else if (item.type === 'delegationRewards') {
                         output += `${chalk.white(item.name || 'Delegation Rewards')}\n`;
-                        // For potential rewards (with isPotentialReward flag)
-                        if (item.isPotentialReward) {
-                            output += `  ${chalk.yellow('Potential rewards available (amount unknown)')}\n`;
+                        // For delegation rewards, always show a special message
+                        if (item.alwaysAttemptClaim) {
+                            output += `  ${chalk.yellow('Try claiming to check if rewards are available')}\n`;
+                            output += `  ${chalk.gray('Cannot check amount before claiming')}\n`;
                         } else {
                             output += `  ${chalk.green(amount.toFixed(2))} ${tokenSymbol}\n`;
                         }
