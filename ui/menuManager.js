@@ -915,11 +915,17 @@ class MenuManager {
             }
         }
 
-        // Determine if user has a private key
-        const hasPrivateKey = await this.walletService.hasPrivateKey(name);
-        
-        // Default format based on whether user has a private key
-        const formatChoice = hasPrivateKey ? OutputFormat.EOA : OutputFormat.SAFE_UI;
+        // Step 4: Select transaction format
+        // We can't reliably detect wallet type just based on private key presence
+        // The user might be using a hardware wallet, watch-only EOA, or other non-Safe wallet
+        console.log("\nSelect transaction format:");
+        const formatOptions = this.uiHandler.createMenuOptions([
+            { key: '1', label: 'EOA Wallet', value: OutputFormat.EOA },
+            { key: '2', label: 'Safe Multisig', value: OutputFormat.SAFE_UI }
+        ], true, false);
+
+        this.uiHandler.displayMenu(formatOptions);
+        const formatChoice = await this.uiHandler.getSelection(formatOptions);
 
         // Generate the claim bundle
         console.log("\nGenerating claim bundle...");
@@ -964,10 +970,10 @@ class MenuManager {
             }
         } else {
             // For Safe wallets - show direct transaction builder link
-            const safeChainId = config.networks.berachain.chainId;
             console.log(`\nTo use this file with Safe:
-1. Go to https://app.safe.global/transactions/tx-builder?safe=berachain:${recipient}
-2. Click "Load" and select the generated file at:
+1. Go to https://app.safe.global/home?safe=ber:${recipient}
+2. Click "New Transaction" > "Transaction Builder"
+3. Click "Load" and select the generated file at:
    ${bundle.filepath}`);
         }
 
