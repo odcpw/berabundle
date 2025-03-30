@@ -170,7 +170,7 @@ class UIHandler {
                 type: 'confirm',
                 name: 'confirmed',
                 message: message,
-                default: false
+                default: true
             }
         ]);
         

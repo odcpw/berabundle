@@ -36,9 +36,8 @@ class MenuManager {
                 { key: '', label: '', value: 'spacer' },
                 
                 // Rewards section
-                { key: '3', label: 'Check Rewards & Boosts', value: 'check' },
-                { key: '4', label: 'Claim Rewards', value: 'claim' },
-                { key: '5', label: 'Send Bundle', value: 'send' }
+                { key: '3', label: 'Claim Rewards', value: 'claim' },
+                { key: '4', label: 'Send Bundle', value: 'send' }
             ], false, true, '', 'Exit');
 
             this.uiHandler.displayMenu(options);
@@ -52,9 +51,6 @@ class MenuManager {
                     break;
                 case 'validators':
                     await this.validatorMenu();
-                    break;
-                case 'check':
-                    await this.checkRewardsMenu();
                     break;
                 case 'claim':
                     await this.claimRewardsMenu();
@@ -919,34 +915,11 @@ class MenuManager {
             }
         }
 
-        // Step 4: Select transaction format
-        console.log("\nSelect transaction format:");
-        const formatOptions = this.uiHandler.createMenuOptions([
-            { key: '1', label: 'EOA Wallet (with Private Key)', value: OutputFormat.EOA },
-            { key: '2', label: 'Safe Web UI (JSON Export)', value: OutputFormat.SAFE_UI }
-        ], true, false);
-
-        this.uiHandler.displayMenu(formatOptions);
-        const formatChoice = await this.uiHandler.getSelection(formatOptions);
-
-        if (formatChoice === 'back') {
-            return;
-        }
-
-        // Step 5: Select output method
-        console.log("\nSelect output method:");
-        const outputOptions = this.uiHandler.createMenuOptions([
-            { key: '1', label: 'Save to file', value: 'file' },
-            { key: '2', label: 'Display in console', value: 'console' },
-            { key: '3', label: 'Both', value: 'all' }
-        ], true, false);
-
-        this.uiHandler.displayMenu(outputOptions);
-        const outputChoice = await this.uiHandler.getSelection(outputOptions);
-
-        if (outputChoice === 'back') {
-            return;
-        }
+        // Determine if user has a private key
+        const hasPrivateKey = await this.walletService.hasPrivateKey(name);
+        
+        // Default format based on whether user has a private key
+        const formatChoice = hasPrivateKey ? OutputFormat.EOA : OutputFormat.SAFE_UI;
 
         // Generate the claim bundle
         console.log("\nGenerating claim bundle...");
@@ -965,15 +938,8 @@ class MenuManager {
             return;
         }
 
-        // Handle output based on user choice
-        if (outputChoice === 'file' || outputChoice === 'all') {
-            console.log(`\nClaim bundle saved to ${bundle.filepath}`);
-        }
-
-        if (outputChoice === 'console' || outputChoice === 'all') {
-            console.log("\nBundle Data:");
-            console.log(JSON.stringify(bundle.bundleData, null, 2));
-        }
+        // Always save to file
+        console.log(`\nClaim bundle saved to ${bundle.filepath}`);
         
         // Ask if user wants to sign and send the bundle with a private key
         if (formatChoice === OutputFormat.EOA) {
