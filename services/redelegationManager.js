@@ -1,9 +1,9 @@
 // redelegationManager.js - Manages validator redelegation preferences
 const fs = require('fs').promises;
 const path = require('path');
-const config = require('./config');
+const config = require('../config');
 const { ethers } = require('ethers');
-const { ErrorHandler } = require('./errorHandler');
+const { ErrorHandler } = require('../utils/errorHandler');
 
 /**
  * Service for managing validator redelegation preferences

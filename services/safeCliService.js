@@ -1,10 +1,10 @@
 // safeCliService.js - Direct integration with Safe CLI
 const { spawn } = require('child_process');
-const { execPromise } = require('./execPromise');
+const { execPromise } = require('../utils/execPromise');
 const fs = require('fs').promises;
 const path = require('path');
-const config = require('./config');
-const { ErrorHandler } = require('./errorHandler');
+const config = require('../config');
+const { ErrorHandler } = require('../utils/errorHandler');
 
 /**
  * Safe CLI Service - Directly integrates with the safe-cli command line tool

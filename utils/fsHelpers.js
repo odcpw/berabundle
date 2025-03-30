@@ -1,6 +1,6 @@
 // fsHelpers.js - File system helper functions
 const fs = require('fs').promises;
-const config = require('./config');
+const config = require('../config');
 const { execPromise } = require('./execPromise');
 const { ErrorHandler } = require('./errorHandler');
 

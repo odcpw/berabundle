@@ -20,9 +20,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@safe-global/api-kit": "^3.0.1",
+    "@safe-global/protocol-kit": "^6.0.2",
+    "@safe-global/types-kit": "^2.0.1",
     "axios": "^1.6.7",
     "chalk": "^4.1.2",
-    "cli-progress": "^3.12.0", 
+    "cli-progress": "^3.12.0",
     "dotenv": "^16.3.1",
     "ethers": "^5.7.2",
     "inquirer": "^8.2.4"

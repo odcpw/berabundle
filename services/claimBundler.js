@@ -5,8 +5,8 @@
 const { ethers } = require('ethers');
 const fs = require('fs').promises;
 const path = require('path');
-const config = require('./config');
-const { ErrorHandler } = require('./errorHandler');
+const config = require('../config');
+const { ErrorHandler } = require('../utils/errorHandler');
 
 /**
  * Output formats for claim bundles

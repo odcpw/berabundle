@@ -1,10 +1,11 @@
 // transactionService.js - Handles transaction signing and sending
 const { ethers } = require('ethers');
-const config = require('./config');
+const config = require('../config');
 const inquirer = require('inquirer');
 const fs = require('fs').promises;
 const path = require('path');
-const { ErrorHandler } = require('./errorHandler');
+const { ErrorHandler } = require('../utils/errorHandler');
+const SafeService = require('./safeService'); // Direct Safe Transaction Service API integration
 
 /**
  * Service for managing transaction creation, signing and sending
@@ -16,6 +17,7 @@ class TransactionService {
         this.walletService = app.walletService;
         this.uiHandler = app.uiHandler;
         this.claimBundler = app.claimBundler;
+        this.safeService = new SafeService(app.provider);
     }
 
     /**
@@ -104,63 +106,117 @@ class TransactionService {
         let success = false;
         
         try {
-            // Process EOA transactions
-            try {
-                let txData = bundle.bundleData;
+            // First, determine if this is a Safe multisig or EOA transaction
+            if (bundle.summary.format === 'safe_ui' || bundle.summary.format === 'safe_cli') {
+                console.log("\nDetected Safe transaction format. Processing as Safe multisig transaction...");
                 
-                // Check if conversion is needed
-                if (bundle.summary.format !== 'eoa') {
-                    console.log("\nConverting transactions to EOA format...");
+                // Get signer address (Safe owner or proposer)
+                const signerAddress = await signer.getAddress();
+                console.log(`Signer address: ${signerAddress}`);
+                
+                // Try to find Safes this signer is an owner of
+                console.log("\nChecking for Safes associated with this signer...");
+                const ownerSafes = await this.safeService.getSafesByOwner(signerAddress);
+                
+                let safeAddress;
+                
+                if (ownerSafes.success && ownerSafes.safes && ownerSafes.safes.length > 0) {
+                    console.log(`\nFound ${ownerSafes.safes.length} Safe(s) associated with this address:`);
                     
-                    // Extract transactions based on format
-                    let transactions;
-                    if (bundle.summary.format === 'safe_ui') {
-                        transactions = txData.transactions;
-                    } else if (bundle.summary.format === 'safe_cli') {
-                        transactions = txData.transactions;
-                    } else {
-                        console.log("\n❌ Error: Unknown format cannot be converted.");
-                        console.log("Try generating a new bundle using the 'Claim Rewards' option.");
+                    // Create options for Safe selection with better formatting
+                    const safeOptions = ownerSafes.safes.map((safe, index) => {
+                        // Format address for better readability
+                        const formattedAddr = `${safe.slice(0, 6)}...${safe.slice(-4)}`;
+                        return {
+                            key: (index + 1).toString(),
+                            label: `Safe #${index + 1}: ${formattedAddr}`,
+                            value: safe
+                        };
+                    });
+                    
+                    // Add custom address option
+                    safeOptions.push({
+                        key: (safeOptions.length + 1).toString(),
+                        label: "Enter a different Safe address",
+                        value: "custom"
+                    });
+                    
+                    const options = this.uiHandler.createMenuOptions(safeOptions);
+                    this.uiHandler.displayMenu(options);
+                    
+                    const choice = await this.uiHandler.getSelection(options);
+                    
+                    if (choice === 'back' || choice === 'quit') {
+                        console.log("Operation cancelled.");
                         return;
                     }
                     
-                    // Use claimBundler to convert to EOA format
-                    const fromAddress = await signer.getAddress();
-                    txData = await this.claimBundler.estimateGasForPayloads(
-                        transactions.map(tx => ({
-                            to: tx.to,
-                            data: tx.data,
-                            value: tx.value || "0x0"
-                        })),
-                        fromAddress
+                    if (choice === 'custom') {
+                        // Manual entry of Safe address
+                        safeAddress = await this.uiHandler.getUserInput(
+                            "\nEnter the Safe multisig address that will execute these transactions:",
+                            input => this.walletService.constructor.isValidAddress(input),
+                            "Invalid Ethereum address format"
+                        );
+                    } else {
+                        // Use selected Safe address
+                        safeAddress = choice;
+                    }
+                } else {
+                    console.log("\nNo Safes found for this signer or Safe Service unavailable.");
+                    
+                    // Ask for Safe address
+                    safeAddress = await this.uiHandler.getUserInput(
+                        "\nEnter the Safe multisig address that will execute these transactions:",
+                        input => this.walletService.constructor.isValidAddress(input),
+                        "Invalid Ethereum address format"
                     );
-                    
-                    // Get the current chain ID
-                    const network = await this.provider.getNetwork();
-                    const chainId = '0x' + network.chainId.toString(16);
-                    
-                    // Format as EOA transactions
-                    txData = txData.map(payload => ({
-                        to: payload.to,
-                        from: fromAddress,
-                        data: payload.data,
-                        value: payload.value || "0x0",
-                        gasLimit: payload.gasLimit,
-                        maxFeePerGas: config.gas.maxFeePerGas,
-                        maxPriorityFeePerGas: config.gas.maxPriorityFeePerGas,
-                        type: "0x2", // EIP-1559 transaction
-                        chainId
-                    }));
-                    
-                    console.log(`Successfully converted ${txData.length} transactions to EOA format.`);
                 }
                 
-                // Send the EOA transactions
-                await this.sendEOATransactions(txData, signer);
-                success = true;
-            } catch (error) {
-                console.log(`\n❌ Error sending EOA transactions: ${error.message}`);
-                success = false;
+                console.log(`\nTarget Safe address: ${safeAddress}`);
+                console.log(`You are proposing this transaction as an owner/proposer: ${signerAddress}`);
+                
+                // Ask for confirmation
+                const confirmSafe = await this.uiHandler.confirm(
+                    "\nThis transaction will be proposed to the Safe Transaction Service " +
+                    "and will appear in the Safe UI for all owners to review and confirm. Continue?"
+                );
+                
+                if (!confirmSafe) {
+                    console.log("Operation cancelled.");
+                    return;
+                }
+                
+                // Use the safeService to propose the transaction
+                const proposalResult = await this.safeService.proposeSafeTransactionWithSdk(
+                    safeAddress, 
+                    bundle, 
+                    signer
+                );
+                
+                if (proposalResult.success) {
+                    console.log(`\n✅ Transaction successfully proposed to Safe!`);
+                    console.log(`Transaction hash: ${proposalResult.safeTxHash}`);
+                    console.log(`\nYou can view and execute this transaction in the Safe UI:`);
+                    console.log(proposalResult.transactionUrl);
+                    success = true;
+                } else {
+                    console.log(`\n❌ Failed to propose Safe transaction: ${proposalResult.message}`);
+                    
+                    // General error case
+                    console.log("\nAlternative options:");
+                    console.log("1. Check your internet connection and try again");
+                    console.log("2. Try using a different owner wallet to propose");
+                    console.log("3. Manually upload the transaction JSON file to the Safe UI:");
+                    console.log(`   - Go to https://app.safe.global/home?safe=ber:${safeAddress}`);
+                    console.log("   - Click 'New Transaction' > 'Transaction Builder'");
+                    console.log(`   - Import the transaction file from: ${bundle.filepath || "output directory"}`)
+                    
+                    success = false;
+                }
+            } else {
+                // Handle as standard EOA transactions
+                await this.sendAsSingleOwnerEOA(bundle, signer);
             }
             
             if (!success) {
@@ -171,6 +227,73 @@ class TransactionService {
         }
         
         await this.uiHandler.pause();
+    }
+
+    /**
+     * Send as EOA transactions (used for both EOA bundles and Safe fallback)
+     * @param {Object} bundle - The bundle to convert and send
+     * @param {Object} signer - The ethers.js signer
+     * @returns {Promise<boolean>} Success status
+     */
+    async sendAsSingleOwnerEOA(bundle, signer) {
+        try {
+            console.log("\nProcessing transactions for EOA sending...");
+            
+            let txData = bundle.bundleData;
+            
+            // Check if conversion is needed
+            if (bundle.summary.format !== 'eoa') {
+                console.log("\nConverting transactions to EOA format...");
+                
+                // Extract transactions based on format
+                let transactions;
+                if (bundle.summary.format === 'safe_ui') {
+                    transactions = txData.transactions;
+                } else if (bundle.summary.format === 'safe_cli') {
+                    transactions = txData.transactions;
+                } else {
+                    console.log("\n❌ Error: Unknown format cannot be converted.");
+                    console.log("Try generating a new bundle using the 'Claim Rewards' option.");
+                    return false;
+                }
+                
+                // Use claimBundler to convert to EOA format
+                const fromAddress = await signer.getAddress();
+                txData = await this.claimBundler.estimateGasForPayloads(
+                    transactions.map(tx => ({
+                        to: tx.to,
+                        data: tx.data,
+                        value: tx.value || "0x0"
+                    })),
+                    fromAddress
+                );
+                
+                // Get the current chain ID
+                const network = await this.provider.getNetwork();
+                const chainId = '0x' + network.chainId.toString(16);
+                
+                // Format as EOA transactions
+                txData = txData.map(payload => ({
+                    to: payload.to,
+                    from: fromAddress,
+                    data: payload.data,
+                    value: payload.value || "0x0",
+                    gasLimit: payload.gasLimit,
+                    maxFeePerGas: config.gas.maxFeePerGas,
+                    maxPriorityFeePerGas: config.gas.maxPriorityFeePerGas,
+                    type: "0x2", // EIP-1559 transaction
+                    chainId
+                }));
+                
+                console.log(`Successfully converted ${txData.length} transactions to EOA format.`);
+            }
+            
+            // Send the EOA transactions
+            return await this.sendEOATransactions(txData, signer);
+        } catch (error) {
+            console.log(`\n❌ Error processing EOA transactions: ${error.message}`);
+            return false;
+        }
     }
 
     /**
