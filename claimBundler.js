@@ -1,4 +1,7 @@
 // ClaimBundler.js - Enhanced claim bundling with gas estimation
+// Note: This file includes fixes for the GS013 error that can occur in Safe transactions.
+// The GS013 error typically happens when there's an issue with the nonce or safeTxGas parameter.
+// The solution implemented here sets safeTxGas to 0, which is a recommended workaround for this error.
 const { ethers } = require('ethers');
 const fs = require('fs').promises;
 const path = require('path');
@@ -9,9 +12,9 @@ const { ErrorHandler } = require('./errorHandler');
  * Output formats for claim bundles
  */
 const OutputFormat = {
-    EOA: 'eoa',           // Standard EOA transaction
-    SAFE_SDK: 'safe_sdk', // Safe transaction SDK format
-    SAFE_UI: 'safe_ui'    // Safe UI (TxBuilder) format
+    EOA: 'eoa',           // Standard EOA transaction for wallets with private keys
+    SAFE_UI: 'safe_ui',   // Safe UI (TxBuilder) format for web interface
+    SAFE_CLI: 'safe_cli'  // Safe CLI format for command line usage
 };
 
 /**
@@ -23,6 +26,9 @@ class ClaimBundler {
 
         // Create output directory if it doesn't exist
         this.ensureOutputDirExists();
+        
+        // Flag to indicate if we should set safeTxGas to 0 to avoid GS013 errors
+        this.useSafeTxGasWorkaround = true;
     }
 
     /**
@@ -191,7 +197,7 @@ class ClaimBundler {
     /**
      * Format transactions based on the selected output format
      * @param {Array} payloads - Claim payloads
-     * @param {string} format - Output format (EOA, SAFE_SDK, SAFE_UI)
+     * @param {string} format - Output format (EOA, SAFE_SDK, SAFE_UI, SAFE_CLI)
      * @param {string} fromAddress - Sender address
      * @param {string} name - Name for the bundle (used in SAFE_UI format)
      * @returns {Promise<Object|Array>} Formatted transactions
@@ -225,14 +231,7 @@ class ClaimBundler {
                         };
                     });
 
-                case OutputFormat.SAFE_SDK:
-                    // Format for Safe SDK
-                    return payloads.map(payload => ({
-                        to: payload.to,
-                        value: payload.value || "0x0",
-                        data: payload.data,
-                        operation: 0 // Call operation
-                    }));
+                // SAFE_SDK format removed as requested
 
                 case OutputFormat.SAFE_UI:
                     // Format for Safe UI (TxBuilder)
@@ -277,6 +276,15 @@ class ClaimBundler {
                         });
                     }
                     
+                    // Add information about direct on-chain transaction support and troubleshooting tips
+                    description += `\n\nThis transaction can be sent directly to the Safe contract using BeraBundle's "Send directly to Safe contract (on-chain)" option. This ensures the transaction appears in the Safe UI without manual importing.`;
+                    description += `\n\nTROUBLESHOOTING:`;
+                    description += `\n- If you see 'GS013' error, try setting a nonce manually in the Safe UI when importing this transaction`;
+                    description += `\n- Try setting 'safeTxGas' to 0 (this helps avoid GS013 errors in some cases)`;
+                    
+                    // Get gas estimates for all payloads to include in UI data
+                    const uiPayloadsWithGas = await this.estimateGasForPayloads(payloads, fromAddress);
+                    
                     return {
                         version: "1.0",
                         chainId: config.networks.berachain.chainId,
@@ -285,12 +293,71 @@ class ClaimBundler {
                             name: `Claim rewards from ${vaultCount + bgtStakerCount} sources ${validatorBoosts.length > 0 ? '+ delegate to ' + validatorBoosts.length + ' validators' : ''} for ${name}`,
                             description: description
                         },
-                        transactions: payloads.map(payload => ({
+                        transactions: uiPayloadsWithGas.map(payload => ({
                             to: payload.to,
                             value: payload.value || "0x0",
                             data: payload.data,
-                            operation: 0 // Call operation
+                            operation: 0, // Call operation
+                            // Set safeTxGas to 0 to avoid GS013 errors
+                            safeTxGas: "0x0",
+                            // Include gasLimit as custom metadata (used for our direct sending but not used by Safe UI)
+                            custom: {
+                                gasLimit: payload.gasLimit || config.gas.defaultGasLimit
+                            }
                         }))
+                    };
+                    
+                case OutputFormat.SAFE_CLI:
+                    // Format for Safe CLI - similar to SAFE_SDK but with additional metadata
+                    const cliPayloadsWithGas = await this.estimateGasForPayloads(payloads, fromAddress);
+                    
+                    // Count different transaction types for metadata
+                    let cliVaultCount = 0;
+                    let cliBgtStakerCount = 0;
+                    let cliValidatorBoosts = [];
+                    
+                    for (const payload of payloads) {
+                        if (payload.metadata) {
+                            if (payload.metadata.type === 'vault') {
+                                cliVaultCount++;
+                            } else if (payload.metadata.type === 'bgtStaker') {
+                                cliBgtStakerCount++;
+                            } else if (payload.metadata.type === 'validatorBoost') {
+                                cliValidatorBoosts.push({
+                                    name: payload.metadata.validatorName,
+                                    amount: payload.metadata.amount,
+                                    allocation: payload.metadata.allocation
+                                });
+                            }
+                        }
+                    }
+                    
+                    // Get the current chain ID
+                    const cliNetwork = await this.provider.getNetwork();
+                    
+                    return {
+                        // Transactions in the format expected by Safe CLI
+                        transactions: cliPayloadsWithGas.map(payload => ({
+                            to: payload.to,
+                            value: payload.value || "0x0",
+                            data: payload.data,
+                            operation: 0, // Call operation (0 = Call, 1 = DelegateCall)
+                            // Set safeTxGas to 0 to avoid GS013 errors
+                            safeTxGas: "0x0",
+                            // Store original gas limit in a custom field for reference if needed
+                            customGasLimit: payload.gasLimit || config.gas.defaultGasLimit
+                        })),
+                        // Add metadata useful for the CLI processing
+                        meta: {
+                            name: `Claim rewards for ${name}`,
+                            fromAddress: fromAddress,
+                            chainId: cliNetwork.chainId,
+                            vaultCount: cliVaultCount,
+                            bgtStakerCount: cliBgtStakerCount,
+                            validatorBoostCount: cliValidatorBoosts.length,
+                            totalTransactions: cliPayloadsWithGas.length,
+                            createdAt: Date.now()
+                        }
                     };
 
                 default:
@@ -315,8 +382,12 @@ class ClaimBundler {
             const now = new Date();
             const dateStr = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19); // Format: YYYY-MM-DD_HH-MM-SS
             
-            // Create filename with human-readable date first, followed by Unix timestamp for uniqueness
-            const filename = `claims_${dateStr}_${name.toLowerCase()}_${format}.json`;
+            // Create filename with human-readable date first, followed by format
+            // Ensure format string matches exactly what we expect in the sendBundleMenu detection
+            const formatString = format === OutputFormat.EOA ? 'eoa' : 
+                               format === OutputFormat.SAFE_UI ? 'safe_ui' : 'safe_cli';
+            
+            const filename = `claims_${dateStr}_${name.toLowerCase()}_${formatString}.json`;
             const filepath = path.join(config.paths.outputDir, filename);
 
             await fs.writeFile(filepath, JSON.stringify(bundle, null, 2));
@@ -414,6 +485,13 @@ class ClaimBundler {
                 name
             );
 
+            // For SAFE_UI format, add our rewardSummary to the description for easier parsing later
+            if (format === OutputFormat.SAFE_UI) {
+                formattedBundle.meta.description += `\n\nRewards: ${Object.entries(rewardsByType)
+                    .map(([symbol, amount]) => `${amount.toFixed(2)} ${symbol}`)
+                    .join(", ")}`;
+            }
+            
             // Save the bundle to a file
             const filepath = await this.saveBundle(formattedBundle, name, format);
 

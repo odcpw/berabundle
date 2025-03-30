@@ -56,7 +56,19 @@ class RedelegationManager {
             const exists = await this.fileExists(this.validatorsFile);
             if (exists) {
                 const data = await fs.readFile(this.validatorsFile, 'utf8');
-                this.validators = JSON.parse(data);
+                const rawValidators = JSON.parse(data);
+                
+                // Map and normalize validators - support both 'id' and 'pubkey' formats
+                this.validators = rawValidators.map(validator => {
+                    return {
+                        // If validator has an id field but no pubkey, use id as pubkey
+                        pubkey: validator.pubkey || validator.id || null,
+                        name: validator.name || 'Unknown Validator',
+                        // Preserve original fields
+                        ...validator
+                    };
+                });
+                
                 console.log(`Loaded ${this.validators.length} validators from file`);
             } else {
                 // Create an empty validator file if it doesn't exist
@@ -152,15 +164,30 @@ class RedelegationManager {
             throw ErrorHandler.createValidationError('Invalid user address');
         }
 
-        // Verify validators exist
-        for (const validator of selectedValidators) {
+        // Filter validators to only include those with pubkeys
+        const validValidators = selectedValidators.filter(validator => 
+            validator && validator.pubkey && this.isValidValidatorPubkey(validator.pubkey)
+        );
+        
+        if (validValidators.length === 0) {
+            throw ErrorHandler.createValidationError('No valid validators with pubkeys selected');
+        }
+        
+        // Verify validators exist in our validator list
+        for (const validator of validValidators) {
             if (!this.validators.find(v => v.pubkey === validator.pubkey)) {
                 throw ErrorHandler.createValidationError(`Validator ${validator.name || validator.pubkey} not found`);
             }
         }
 
-        // Verify allocations add up to 100%
-        const totalAllocation = Object.values(allocations).reduce((sum, value) => sum + value, 0);
+        // Verify allocations add up to 100% (only for pubkeys that exist)
+        const validPubkeys = validValidators.map(v => v.pubkey);
+        const validAllocations = Object.entries(allocations)
+            .filter(([pubkey]) => validPubkeys.includes(pubkey))
+            .map(([_, value]) => value);
+            
+        const totalAllocation = validAllocations.reduce((sum, value) => sum + value, 0);
+        
         if (Math.abs(totalAllocation - 100) > 0.01) { // Allow for minor floating point errors
             throw ErrorHandler.createValidationError(`Allocations must add up to 100%, got ${totalAllocation}%`);
         }
@@ -313,6 +340,17 @@ class RedelegationManager {
             // The validators should already be in validators.json downloaded from github
             // We'll just make sure they're loaded
             await this.loadValidators();
+            
+            // Ensure all validators have pubkey field (map from id if needed)
+            this.validators = this.validators.map(validator => {
+                return {
+                    // If validator has an id field but no pubkey, use id as pubkey
+                    pubkey: validator.pubkey || validator.id || null,
+                    name: validator.name || 'Unknown Validator',
+                    // Preserve original fields
+                    ...validator
+                };
+            });
             
             // If no validators are found, we could provide some default ones
             if (this.validators.length === 0) {

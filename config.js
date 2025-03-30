@@ -12,6 +12,16 @@ const networks = {
         bgtStakerAddress: '0x44F07Ce5AfeCbCC406e6beFD40cc2998eEb8c7C6',
         honeyTokenAddress: '0x7EeCA4205fF31f947EdBd49195a7A88E6A91161B', // Added HONEY token address
         validatorBoostAddress: '0x656b95E550C07a9ffe548bd4085c72418Ceb1dba', // BGT token contract (for validator boosts)
+        
+        // Safe configuration
+        safe: {
+            // Safe Transaction Service URL for Berachain
+            serviceUrl: process.env.SAFE_SERVICE_URL || 'https://safe-transaction-berachain.safe.global/api/v1', 
+            appUrl: 'https://app.safe.global', // Safe web app URL
+            
+            // Multisend contract address for batching transactions
+            multiSendAddress: '0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526' // Standard Safe MultiSend contract
+        }
     }
 };
 
@@ -25,8 +35,20 @@ const performance = {
 
 // File paths
 const paths = {
-    walletsFile: path.join(__dirname, 'wallets.json'),
+    // Directories
     outputDir: path.join(__dirname, 'output'),
+    metadataDir: path.join(__dirname, 'metadata'),
+    userprefsDir: path.join(__dirname, 'userprefs'),
+    
+    // Metadata files (downloaded from GitHub)
+    validatorsFile: path.join(__dirname, 'metadata', 'validators.json'),
+    vaultsFile: path.join(__dirname, 'metadata', 'vaults.json'),
+    tokensFile: path.join(__dirname, 'metadata', 'tokens.json'),
+    
+    // User preference files
+    walletsFile: path.join(__dirname, 'userprefs', 'wallets.json'),
+    boostAllocationFile: path.join(__dirname, 'userprefs', 'boost_allocation.json'),
+    encryptedKeysFile: path.join(__dirname, 'userprefs', 'encrypted_keys.json'),
 };
 
 // Gas settings
