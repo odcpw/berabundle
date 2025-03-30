@@ -938,24 +938,6 @@ class MenuManager {
             return;
         }
 
-        // Always save to file
-        console.log(`\nClaim bundle saved to ${bundle.filepath}`);
-        
-        // Ask if user wants to sign and send the bundle with a private key
-        if (formatChoice === OutputFormat.EOA) {
-            const signBundle = await this.uiHandler.confirm("\nWould you like to sign and send this bundle with a private key?");
-            
-            if (signBundle) {
-                await this.app.transactionService.signAndSendBundleFlow(bundle);
-            }
-        } else {
-            console.log(`\nTo use this file with Safe UI:
-1. Go to https://app.safe.global
-2. Connect to your Safe account
-3. Go to "New Transaction" > "Transaction Builder"
-4. Click "Load" and select the generated file`);
-        }
-
         // Show enhanced summary that includes BGT Staker info and redelegation
         console.log("\nClaim bundle generated successfully!");
         let summaryText = `${bundle.summary.vaultCount} vaults`;
@@ -968,6 +950,26 @@ class MenuManager {
         console.log(`Summary: ${summaryText}`);
         console.log(`Rewards: ${bundle.summary.rewardSummary}`);
         console.log(`Total transactions: ${bundle.summary.totalTransactions}`);
+        
+        // Display information based on wallet type
+        if (formatChoice === OutputFormat.EOA) {
+            // For EOA wallets
+            console.log(`\nClaim bundle saved to ${bundle.filepath}`);
+            
+            // Ask if user wants to sign and send the bundle with a private key
+            const signBundle = await this.uiHandler.confirm("\nWould you like to sign and send this bundle with a private key?");
+            
+            if (signBundle) {
+                await this.app.transactionService.signAndSendBundleFlow(bundle);
+            }
+        } else {
+            // For Safe wallets - show direct transaction builder link
+            const safeChainId = config.networks.berachain.chainId;
+            console.log(`\nTo use this file with Safe:
+1. Go to https://app.safe.global/transactions/tx-builder?safe=berachain:${recipient}
+2. Click "Load" and select the generated file at:
+   ${bundle.filepath}`);
+        }
 
         await this.uiHandler.pause();
     }
