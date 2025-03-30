@@ -5,10 +5,11 @@
   "main": "berabundle.js",
   "scripts": {
     "start": "node berabundle.js",
-    "check": "node scripts/checkRewards.js",
-    "claim": "node scripts/claimRewards.js",
-    "validators": "node validatorSelector.js",
-    "claim-redelegate": "node claimAndRedelegate.js"
+    "claim-redelegate": "node claimAndRedelegate.js",
+    "validators": "node ui/validatorSelector.js",
+    "cli-claim-redelegate": "node scripts/claimAndRedelegate.js",
+    "prepare-multisig": "node scripts/prepareMultisigBundle.js",
+    "test-safe": "node test-safe-sdk.js"
   },
   "keywords": [
     "berachain",
