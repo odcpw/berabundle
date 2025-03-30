@@ -12,6 +12,7 @@ const networks = {
         bgtStakerAddress: '0x44F07Ce5AfeCbCC406e6beFD40cc2998eEb8c7C6',
         honeyTokenAddress: '0x7EeCA4205fF31f947EdBd49195a7A88E6A91161B', // Added HONEY token address
         validatorBoostAddress: '0x656b95E550C07a9ffe548bd4085c72418Ceb1dba', // BGT token contract (for validator boosts)
+        delegationRewardsAddress: '0xBDDba144482049382eC79CadfA02f0fa0F462dE3', // Delegation rewards contract address
         
         // Safe configuration
         safe: {
@@ -82,6 +83,11 @@ const abis = {
 
     bgtStaker: [
         "function getReward() external returns (uint256)",
+        "function earned(address account) external view returns (uint256)"
+    ],
+
+    delegationRewards: [
+        "function claim() external returns (uint256)",
         "function earned(address account) external view returns (uint256)"
     ],
 

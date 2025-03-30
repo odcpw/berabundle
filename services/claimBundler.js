@@ -71,6 +71,30 @@ class ClaimBundler {
                             value: "0x0",
                             metadata: {
                                 type: 'bgtStaker',
+                                name: item.name || 'Honey Pool',
+                                contractAddress: item.contractAddress,
+                                rewardToken: item.rewardToken,
+                                rewardAmount: item.earned
+                            }
+                        };
+
+                        claimPayloads.push(payload);
+                    } else if (item.type === 'delegationRewards') {
+                        // Handle Delegation Rewards claim
+                        const iface = new ethers.utils.Interface([
+                            "function claim() external returns (uint256)"
+                        ]);
+
+                        // Encode function call for Delegation Rewards (no parameters)
+                        const data = iface.encodeFunctionData("claim", []);
+
+                        const payload = {
+                            to: item.contractAddress,
+                            data: data,
+                            value: "0x0",
+                            metadata: {
+                                type: 'delegationRewards',
+                                name: item.name || 'Bera Chain Validators',
                                 contractAddress: item.contractAddress,
                                 rewardToken: item.rewardToken,
                                 rewardAmount: item.earned
@@ -265,7 +289,29 @@ class ClaimBundler {
                         description += `\n- ${vaultCount} vault claim(s)`;
                     }
                     if (bgtStakerCount > 0) {
-                        description += `\n- ${bgtStakerCount} BGT Staker claim(s)`;
+                        // Get the name from metadata
+                        let bgtStakerName = "Honey Pool";
+                        for (const payload of payloads) {
+                            if (payload.metadata && payload.metadata.type === 'bgtStaker' && payload.metadata.name) {
+                                bgtStakerName = payload.metadata.name;
+                                break;
+                            }
+                        }
+                        description += `\n- ${bgtStakerCount} BGT Staker claim(s) from ${bgtStakerName}`;
+                    }
+                    
+                    let delegationRewardsCount = 0;
+                    let delegationRewardsName = "Bera Chain Validators";
+                    for (const payload of payloads) {
+                        if (payload.metadata && payload.metadata.type === 'delegationRewards') {
+                            delegationRewardsCount++;
+                            if (payload.metadata.name) {
+                                delegationRewardsName = payload.metadata.name;
+                            }
+                        }
+                    }
+                    if (delegationRewardsCount > 0) {
+                        description += `\n- ${delegationRewardsCount} Delegation Rewards claim(s) from ${delegationRewardsName}`;
                     }
                     
                     // Add validator boost details if present
@@ -314,6 +360,7 @@ class ClaimBundler {
                     // Count different transaction types for metadata
                     let cliVaultCount = 0;
                     let cliBgtStakerCount = 0;
+                    let cliDelegationRewardsCount = 0;
                     let cliValidatorBoosts = [];
                     
                     for (const payload of payloads) {
@@ -322,6 +369,8 @@ class ClaimBundler {
                                 cliVaultCount++;
                             } else if (payload.metadata.type === 'bgtStaker') {
                                 cliBgtStakerCount++;
+                            } else if (payload.metadata.type === 'delegationRewards') {
+                                cliDelegationRewardsCount++;
                             } else if (payload.metadata.type === 'validatorBoost') {
                                 cliValidatorBoosts.push({
                                     name: payload.metadata.validatorName,
@@ -354,6 +403,7 @@ class ClaimBundler {
                             chainId: cliNetwork.chainId,
                             vaultCount: cliVaultCount,
                             bgtStakerCount: cliBgtStakerCount,
+                            delegationRewardsCount: cliDelegationRewardsCount,
                             validatorBoostCount: cliValidatorBoosts.length,
                             totalTransactions: cliPayloadsWithGas.length,
                             createdAt: Date.now()
@@ -425,6 +475,7 @@ class ClaimBundler {
             // Calculate stats for summary
             let vaultCount = 0;
             let hasBGTStaker = false;
+            let hasDelegationRewards = false;
             let totalBGT = 0;
             let totalHONEY = 0;
             let rewardsByType = {}; // Track rewards by token symbol
@@ -432,6 +483,16 @@ class ClaimBundler {
             for (const payload of payloads) {
                 if (payload.metadata.type === 'bgtStaker') {
                     hasBGTStaker = true;
+                    const symbol = payload.metadata.rewardToken.symbol;
+                    if (!rewardsByType[symbol]) {
+                        rewardsByType[symbol] = 0;
+                    }
+                    rewardsByType[symbol] += parseFloat(payload.metadata.rewardAmount);
+                    if (symbol === "HONEY") {
+                        totalHONEY += parseFloat(payload.metadata.rewardAmount);
+                    }
+                } else if (payload.metadata.type === 'delegationRewards') {
+                    hasDelegationRewards = true;
                     const symbol = payload.metadata.rewardToken.symbol;
                     if (!rewardsByType[symbol]) {
                         rewardsByType[symbol] = 0;
@@ -507,6 +568,7 @@ class ClaimBundler {
                 summary: {
                     vaultCount,
                     hasBGTStaker,
+                    hasDelegationRewards,
                     totalBGT: totalBGT.toFixed(2),
                     totalHONEY: totalHONEY.toFixed(2),
                     rewardsByType,

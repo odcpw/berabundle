@@ -278,11 +278,23 @@ class UIHandler {
                     }
                     
                     if (item.type === 'bgtStaker') {
-                        output += `${chalk.white('BGT Staker')}\n`;
+                        output += `${chalk.white(item.name || 'BGT Staker')}\n`;
+                        output += `  ${chalk.green(amount.toFixed(2))} ${tokenSymbol}\n`;
+                    } else if (item.type === 'delegationRewards') {
+                        output += `${chalk.white(item.name || 'Delegation Rewards')}\n`;
+                        // For potential rewards (with isPotentialReward flag)
+                        if (item.isPotentialReward) {
+                            output += `  ${chalk.yellow('Potential rewards available (amount unknown)')}\n`;
+                        } else {
+                            output += `  ${chalk.green(amount.toFixed(2))} ${tokenSymbol}\n`;
+                        }
                     } else {
-                        output += `${chalk.white(item.vaultAddress)}\n`;
+                        // For vaults, show the name and protocol if available
+                        const name = item.name || item.vaultAddress;
+                        const protocol = item.protocol ? ` on ${item.protocol}` : '';
+                        output += `${chalk.white(name)}${chalk.gray(protocol)}\n`;
+                        output += `  ${chalk.green(amount.toFixed(2))} ${tokenSymbol}\n`;
                     }
-                    output += `  ${chalk.green(amount.toFixed(2))} ${tokenSymbol}\n`;
                 }
             });
         }
