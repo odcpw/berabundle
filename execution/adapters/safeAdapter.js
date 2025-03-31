@@ -154,6 +154,62 @@ class SafeAdapter {
         
         return transactions;
     }
+    
+    /**
+     * Encode multiple transactions for the MultiSend contract
+     * @param {Array} transactions - Array of transactions to encode
+     * @returns {string} Encoded transactions for MultiSend
+     */
+    encodeMultiSendTransactions(transactions) {
+        // Get an instance of the ethers.js utils for encoding
+        const { defaultAbiCoder, hexlify, hexZeroPad, concat } = ethers.utils;
+        
+        // Each transaction to be encoded as:
+        // operation (uint8) + to (address) + value (uint256) + dataLength (uint256) + data (bytes)
+        const encodedTransactions = transactions.map(tx => {
+            // Operation is always 0 for CALL
+            const operation = '00'; // No 0x prefix
+            
+            // Address is padded to 20 bytes, without 0x prefix
+            const to = hexZeroPad(tx.to.toLowerCase(), 20).slice(2);
+            
+            // Value is a uint256 (32 bytes), without 0x prefix
+            const value = hexZeroPad(
+                hexlify(tx.value === '0x0' || tx.value === '0' ? 0 : tx.value), 
+                32
+            ).slice(2);
+            
+            // Remove 0x prefix for data
+            const data = tx.data.startsWith('0x') ? tx.data.slice(2) : tx.data;
+            
+            // Data length is a uint256 (32 bytes), without 0x prefix
+            const dataLength = hexZeroPad(hexlify(data.length / 2), 32).slice(2);
+            
+            // Combine all parts (without any 0x prefixes)
+            return operation + to + value + dataLength + data;
+        });
+        
+        // Join all encoded transactions (no 0x prefixes)
+        const encodedData = encodedTransactions.join('');
+        
+        // MultiSend function selector (multiSend)
+        const multiSendFunction = '8d80ff0a'; // No 0x prefix
+        
+        // Offset is always 32 for a single parameter (pointer to the data)
+        const offset = hexZeroPad(hexlify(32), 32).slice(2);
+        
+        // Length of the data in bytes
+        const length = hexZeroPad(hexlify(encodedData.length / 2), 32).slice(2);
+        
+        // Calculate padding needed to make data length a multiple of 32 bytes
+        const dataLengthInBytes = encodedData.length / 2;
+        const padding = dataLengthInBytes % 32 === 0 ? 
+                        '' : 
+                        '0'.repeat(64 - (dataLengthInBytes % 32) * 2);
+        
+        // Combine all parts (adding back the 0x prefix at the beginning only)
+        return '0x' + multiSendFunction + offset + length + encodedData + padding;
+    }
 
     /**
      * Calculate EIP-712 hash for a Safe transaction
@@ -382,28 +438,57 @@ class SafeAdapter {
             const nonce = nonceResult.nonce;
             console.log(`Using nonce: ${nonce}`);
             
-            // Only support single transaction for now
+            // Check if we have any transactions
             if (transactions.length === 0) {
                 throw new Error("No transactions in bundle");
             }
             
-            // Step 5: Use the first transaction and prepare it for the Safe Transaction Service
-            const transaction = transactions[0];
-            console.log(`Using transaction: To=${transaction.to}, Value=${transaction.value}, Data=${transaction.data.substring(0, 50)}...`);
+            // Step 5: Handle transactions - use MultiSend contract if multiple transactions
+            let tx;
             
-            // Step 6: Create transaction data for the Safe Transaction Service
-            const tx = {
-                to: transaction.to,
-                value: transaction.value === '0x0' ? '0' : transaction.value,
-                data: transaction.data,
-                operation: 0, // Call
-                safeTxGas: 0,
-                baseGas: 0,
-                gasPrice: 0,
-                gasToken: '0x0000000000000000000000000000000000000000',
-                refundReceiver: '0x0000000000000000000000000000000000000000',
-                nonce: nonce
-            };
+            if (transactions.length === 1) {
+                // Single transaction - use it directly
+                const transaction = transactions[0];
+                console.log(`Using single transaction: To=${transaction.to}, Value=${transaction.value}, Data=${transaction.data.substring(0, 50)}...`);
+                
+                // Create transaction data for the Safe Transaction Service
+                tx = {
+                    to: transaction.to,
+                    value: transaction.value === '0x0' ? '0' : transaction.value,
+                    data: transaction.data,
+                    operation: 0, // Call
+                    safeTxGas: 0,
+                    baseGas: 0,
+                    gasPrice: 0,
+                    gasToken: '0x0000000000000000000000000000000000000000',
+                    refundReceiver: '0x0000000000000000000000000000000000000000',
+                    nonce: nonce
+                };
+            } else {
+                // Multiple transactions - use MultiSend contract
+                console.log(`Bundling ${transactions.length} transactions using MultiSend contract`);
+                
+                // Get MultiSendCallOnly contract address from config (uses regular CALL operation)
+                const multiSendAddress = config.networks.berachain.safe.multiSendCallsOnlyAddress;
+                console.log(`Using MultiSendCallsOnly contract: ${multiSendAddress}`);
+                
+                // Encode transactions for MultiSend
+                const encodedTransactions = this.encodeMultiSendTransactions(transactions);
+                
+                // Create transaction for MultiSend - using CALL operation (0) instead of DELEGATE_CALL (1)
+                tx = {
+                    to: multiSendAddress,
+                    value: '0', // MultiSend doesn't accept ETH directly
+                    data: encodedTransactions,
+                    operation: 0, // Regular CALL operation (not DELEGATE_CALL)
+                    safeTxGas: 0,
+                    baseGas: 0,
+                    gasPrice: 0,
+                    gasToken: '0x0000000000000000000000000000000000000000',
+                    refundReceiver: '0x0000000000000000000000000000000000000000',
+                    nonce: nonce
+                };
+            }
             
             console.log('Prepared transaction data for Safe Transaction Service');
             
