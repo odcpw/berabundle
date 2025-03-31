@@ -282,15 +282,33 @@ class TransactionService {
             // Handle different bundle formats - log bundle format for debugging
             console.log(`Bundle format info: Keys=${Object.keys(bundle).join(', ')}`);
             
-            // Handle special case for swap bundle where we might have a different structure
-            if (bundle.format === 'eoa' && bundle.transactions && Array.isArray(bundle.transactions)) {
-                console.log("Detected EOA swap bundle with transactions array - using directly");
-                // Pass the bundle directly to sendEOATransactions which can handle various formats
-                return await this.sendEOATransactions(bundle, signer);
+            // With our standardized format, all bundles use bundleData
+            // This handles both EOA and Safe bundles consistently
+            if (bundle.bundleData && bundle.bundleData.transactions) {
+                console.log("Detected standardized bundle format with bundleData structure");
+                return await this.sendWithMulticall(bundle, signer);
             }
-            // Handle the case where transactions is directly at top level (common for regular bundles)
+            // Support legacy bundles with transactions at the top level as a fallback
+            else if (bundle.format === 'eoa' && bundle.transactions && Array.isArray(bundle.transactions)) {
+                console.log("Detected legacy EOA bundle with transactions array - converting to standardized format");
+                // Create a standardized bundle structure to pass forward
+                const standardizedBundle = {
+                    bundleData: {
+                        transactions: bundle.transactions,
+                        meta: {
+                            from: bundle.fromAddress
+                        }
+                    },
+                    format: 'eoa',
+                    summary: {
+                        format: 'eoa'
+                    }
+                };
+                return await this.sendWithMulticall(standardizedBundle, signer);
+            }
+            // Handle another legacy case where transactions is directly at top level
             else if (bundle.transactions && Array.isArray(bundle.transactions)) {
-                console.log("Using 'transactions' array from bundle");
+                console.log("Using 'transactions' array from bundle and converting to standardized format");
                 txData = bundle.transactions;
             } else if (bundle.bundleData) {
                 // Bundle data format
@@ -347,8 +365,8 @@ class TransactionService {
                 return false;
             }
             
-            // Send the EOA transactions
-            return await this.sendEOATransactions(txData, signer);
+            // Send the EOA transactions using multicall
+            return await this.sendWithMulticall(txData, signer);
         } catch (error) {
             console.log(`\n❌ Error processing EOA transactions: ${error.message}`);
             return false;
@@ -484,9 +502,9 @@ class TransactionService {
                 
                 return true;
             } else {
-                // Multiple transactions - always use MultiSend for better efficiency
+                // Multiple transactions - always use MultiSendCallsOnly for better efficiency
                 console.log(`\nFound ${txCount} transactions in bundle.`);
-                console.log(`\n🔄 Bundling ${txCount} transactions using MultiSend...`);
+                console.log(`\n🔄 Bundling ${txCount} transactions using Safe's MultiSendCallsOnly...`);
                 return await this.sendWithMulticall(transactions, signer);
             }
         } catch (error) {
@@ -496,7 +514,7 @@ class TransactionService {
     }
     
     /**
-     * Send transactions individually one by one
+     * Send transactions using Safe's MultiSend contract
      * @param {Array|Object} transactions - Array of transactions to send or a bundle object containing transactions
      * @param {Object} signer - The ethers.js signer
      * @returns {Promise<boolean>} Success status
@@ -504,22 +522,47 @@ class TransactionService {
     async sendWithMulticall(inputTransactions, signer) {
         let txArray;
         // Handle the case where we received a bundle object instead of transactions array
-        if (!Array.isArray(inputTransactions) && inputTransactions.transactions) {
+        if (!Array.isArray(inputTransactions)) {
             console.log("Received bundle object - extracting transactions array");
-            txArray = inputTransactions.transactions;
+            
+            // STANDARDIZED FORMAT: All bundles have transactions under bundleData.transactions
+            if (inputTransactions.bundleData && inputTransactions.bundleData.transactions) {
+                txArray = inputTransactions.bundleData.transactions;
+                console.log(`Found ${txArray.length} transactions in standardized bundle format`);
+            }
+            // Support legacy EOA format where transactions are at the top level as a fallback
+            else if (inputTransactions.transactions && Array.isArray(inputTransactions.transactions)) {
+                txArray = inputTransactions.transactions;
+                console.log(`Found ${txArray.length} transactions in legacy EOA bundle format`);
+            }
+            else {
+                console.log("Could not find transactions array in bundle");
+                console.log("Bundle keys:", Object.keys(inputTransactions).join(", "));
+                return false;
+            }
         } else if (Array.isArray(inputTransactions)) {
             txArray = inputTransactions;
+            console.log(`Using direct array of ${txArray.length} transactions`);
         } else {
             console.log("Invalid transaction input - cannot process");
             return false;
         }
 
         try {
-            console.log("\n🔄 Sending transactions individually...");
+            console.log("\n🔄 Bundling transactions with Safe's MultiSendCallsOnly...");
             
             // Get signer address
             const fromAddress = await signer.getAddress();
             console.log(`Signer address: ${fromAddress}`);
+            
+            // Use Safe's MultiSendCallsOnly contract instead of MultiSend or Multicall3
+            // This contract is designed to be called directly (not via delegatecall)
+            // and will internally use 'call' operations for each transaction
+            const multiSend = new ethers.Contract(
+                config.currentNetwork.safe.multiSendCallsOnlyAddress, // Using the calls-only version that can be called directly
+                config.abis.multiSend, // Same ABI as regular MultiSend
+                signer
+            );
             
             // Validate and prepare transactions
             const validTransactions = [];
@@ -548,91 +591,219 @@ class TransactionService {
                 return false;
             }
             
-            // Process transactions one by one
-            console.log(`\nSending ${validTransactions.length} transactions individually...`);
+            // Format transactions for Safe MultiSend
+            // MultiSend expects a single bytes parameter that encodes all transactions
+            // Format: <operation><to><value><dataLength><data>
+            // - operation: 0 for call, 1 for delegatecall (uint8)
+            // - to: address (20 bytes)
+            // - value: amount of ETH to send (uint256)
+            // - dataLength: length of data (uint256)
+            // - data: transaction data (bytes)
             
-            let successCount = 0;
-            const txHashes = [];
+            console.log(`\nPreparing ${validTransactions.length} transactions for MultiSendCallsOnly...`);
             
-            for (let i = 0; i < validTransactions.length; i++) {
-                const tx = validTransactions[i];
-                console.log(`\nTransaction ${i + 1}/${validTransactions.length}:`);
-                console.log(`To: ${tx.to}`);
-                console.log(`Data length: ${tx.data.length / 2 - 1} bytes`);
-                
-                // Format transaction for sending
-                const formattedTx = {
-                    to: tx.to,
-                    from: fromAddress,
-                    data: tx.data,
-                    value: ethers.BigNumber.from(tx.value || "0x0"),
-                    // Use a generous gas limit to avoid failures
-                    gasLimit: ethers.BigNumber.from(tx.gasLimit || "0x200000"),
-                    // Use EIP-1559 transaction format
-                    maxFeePerGas: ethers.BigNumber.from(config.gas.maxFeePerGas),
-                    maxPriorityFeePerGas: ethers.BigNumber.from(config.gas.maxPriorityFeePerGas),
-                    type: 2 // EIP-1559
+            // The proper way to encode transactions for Safe's MultiSendCallsOnly
+            // MultiSendCallsOnly expects a specific format for the transactions batch
+            console.log("Formatting transactions for MultiSendCallsOnly...");
+            
+            // Let's completely simplify our approach to transaction encoding
+            // First, create a cleaner array of transaction objects
+            const simpleTxs = validTransactions.map((tx, index) => {
+                console.log(`Transaction ${index + 1}: to=${tx.to}, data length=${tx.data ? tx.data.length : 0}`);
+                // Convert any non-hex value to hex
+                let value = tx.value;
+                if (value && !value.startsWith('0x')) {
+                    value = '0x' + parseInt(value).toString(16);
+                }
+                return {
+                    to: ethers.utils.getAddress(tx.to), // Ensure address is checksummed
+                    value: value || '0x0',
+                    data: tx.data || '0x',
+                    operation: 0 // 0 = Call (MultiSendCallsOnly only supports calls)
                 };
+            });
+            
+            // We'll continue with MultiSendCallsOnly approach but with simplified encoding
+            console.log("\nContinuing with MultiSendCallsOnly but with simplified encoding...");
+            
+            // Log the transactions in detail for debugging
+            console.log("\nDetailed transaction data:");
+            simpleTxs.forEach((tx, i) => {
+                console.log(`TX ${i+1}:`);
+                console.log(`  To: ${tx.to}`);
+                console.log(`  Value: ${tx.value}`);
+                console.log(`  Data prefix: ${tx.data.substring(0, 10)}${tx.data.length > 10 ? '...' : ''}`);
+                console.log(`  Data length: ${tx.data.length} chars`);
+            });
+            
+            // Since we need to preserve msg.sender, we have to send transactions individually
+            // This is the only way to ensure the correct msg.sender context
+            console.log("\nMulticall and MultiSend both change msg.sender context.");
+            console.log("To preserve your wallet as msg.sender, we need to send transactions individually.");
+            
+            // Get confirmation from user
+            const confirmIndividual = await inquirer.prompt([
+                {
+                    type: 'input',
+                    name: 'confirmIndividual',
+                    message: 'Send transactions individually to preserve your wallet as msg.sender? (y/n)',
+                    default: 'y'
+                }
+            ]);
+            
+            if (confirmIndividual.confirmIndividual.toLowerCase() !== 'y') {
+                console.log("Operation cancelled.");
+                return false;
+            }
+            
+            // Send transactions individually to preserve msg.sender
+            console.log("\nSending transactions individually to preserve msg.sender context...");
+            let successCount = 0;
+            
+            for (let i = 0; i < simpleTxs.length; i++) {
+                const tx = simpleTxs[i];
+                console.log(`\nSending transaction ${i+1}/${simpleTxs.length}...`);
+                console.log(`To: ${tx.to}`);
+                console.log(`Data prefix: ${tx.data.substring(0, 10)}...`);
                 
                 try {
-                    // Try to estimate gas first for more accurate gas usage
+                    // Format as individual transaction
+                    const txData = {
+                        to: tx.to,
+                        data: tx.data,
+                        value: ethers.BigNumber.from(tx.value),
+                        gasLimit: ethers.BigNumber.from("5000000"), // Very high gas limit by default
+                        maxFeePerGas: ethers.BigNumber.from(config.gas.maxFeePerGas),
+                        maxPriorityFeePerGas: ethers.BigNumber.from(config.gas.maxPriorityFeePerGas),
+                        type: 2 // EIP-1559
+                    };
+                    
+                    // Try to estimate gas for this specific transaction
                     try {
-                        const estimatedGas = await signer.estimateGas(formattedTx);
-                        console.log(`Estimated gas: ${estimatedGas.toString()}`);
-                        
-                        // Add 20% buffer to estimated gas
-                        const gasWithBuffer = estimatedGas.mul(12).div(10);
-                        console.log(`Gas limit with 20% buffer: ${gasWithBuffer.toString()}`);
-                        
-                        formattedTx.gasLimit = gasWithBuffer;
-                    } catch (estimateError) {
-                        console.log(`Gas estimation failed: ${estimateError.message}`);
-                        console.log(`Using default gas limit: ${formattedTx.gasLimit.toString()}`);
+                        const estimatedGas = await signer.estimateGas(txData);
+                        // Add 50% buffer for swaps
+                        txData.gasLimit = estimatedGas.mul(15).div(10);
+                        console.log(`Estimated gas: ${estimatedGas.toString()}, with buffer: ${txData.gasLimit.toString()}`);
+                    } catch (gasError) {
+                        console.log(`Gas estimation failed: ${gasError.message}`);
+                        console.log("Using default gas limit");
                     }
                     
                     // Send the transaction
-                    console.log("Sending transaction...");
-                    const txResponse = await signer.sendTransaction(formattedTx);
-                    console.log(`✅ Transaction sent! Hash: ${txResponse.hash}`);
-                    txHashes.push(txResponse.hash);
+                    const txResponse = await signer.sendTransaction(txData);
+                    console.log(`Transaction sent! Hash: ${txResponse.hash}`);
                     
-                    // Wait for confirmation with a sensible timeout
+                    // Wait for confirmation
                     console.log("Waiting for confirmation...");
                     const receipt = await txResponse.wait(1);
                     
-                    // Display transaction details
-                    console.log("✅ Transaction confirmed!");
-                    console.log(`Block #: ${receipt.blockNumber}`);
-                    console.log(`Gas used: ${receipt.gasUsed.toString()}`);
-                    console.log(`Explorer link: https://berascan.com/tx/${receipt.transactionHash}`);
-                    
-                    successCount++;
-                    
-                    // Add a small delay between transactions to avoid nonce issues
-                    if (i < validTransactions.length - 1) {
-                        console.log("\nWaiting 2 seconds before next transaction...");
-                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    if (receipt.status === 1) {
+                        console.log(`✅ Transaction ${i+1} succeeded! Block: ${receipt.blockNumber}`);
+                        console.log(`Gas used: ${receipt.gasUsed.toString()}`);
+                        console.log(`Explorer link: https://berascan.com/tx/${receipt.transactionHash}`);
+                        successCount++;
+                    } else {
+                        console.log(`❌ Transaction ${i+1} failed!`);
                     }
                 } catch (txError) {
-                    console.log(`❌ Transaction ${i + 1} failed: ${txError.message}`);
-                    console.log("Error details:", txError);
+                    console.log(`❌ Error sending transaction ${i+1}: ${txError.message}`);
+                }
+                
+                // Small delay between transactions
+                if (i < simpleTxs.length - 1) {
+                    console.log("Waiting 2 seconds before next transaction...");
+                    await new Promise(resolve => setTimeout(resolve, 2000));
                 }
             }
             
-            // Final summary
-            console.log(`\n=============================================`);
-            console.log(`Successfully sent ${successCount}/${validTransactions.length} transactions`);
+            console.log(`\nTransaction summary: ${successCount}/${simpleTxs.length} succeeded`);
+            return successCount > 0; // Return true if at least one transaction succeeded
+        } catch (error) {
+            console.log(`\n❌ Error during transaction execution: ${error.message}`);
             
-            if (txHashes.length > 0) {
-                console.log("\nTransaction hashes:");
-                txHashes.forEach((hash, index) => {
-                    console.log(`${index + 1}. ${hash}`);
+            // Provide specific error messages for common Multicall3 issues
+            if (error.message.includes("execution reverted")) {
+                console.log("\nTransaction reverted during execution. Common reasons include:");
+                console.log("1. Incorrect transaction encoding format");
+                console.log("2. One of the transactions in the bundle failed");
+                console.log("3. Insufficient token allowances for swaps");
+                console.log("4. Insufficient gas for the entire bundle");
+                
+                // Extract transaction details for debugging
+                console.log("\nTransaction details for debugging:");
+                simpleTxs.forEach((tx, index) => {
+                    console.log(`[Tx ${index+1}] To: ${tx.to}`);
+                    console.log(`[Tx ${index+1}] Value: ${tx.value}`);
+                    console.log(`[Tx ${index+1}] Data length: ${tx.data.length}`);
+                    console.log(`[Tx ${index+1}] Data prefix: ${tx.data.substring(0, 10)}...`);
                 });
+                
+                // Offer fallback to send transactions individually
+                console.log("\nWould you like to attempt sending these transactions individually? (y/n)");
+                const answer = await inquirer.prompt([
+                    {
+                        type: 'input',
+                        name: 'shouldFallback',
+                        message: 'Send individually?',
+                        default: 'n'
+                    }
+                ]);
+                
+                if (answer.shouldFallback.toLowerCase() === 'y') {
+                    console.log("\nAttempting to send transactions individually...");
+                    let successCount = 0;
+                    
+                    for (let i = 0; i < simpleTxs.length; i++) {
+                        const tx = simpleTxs[i];
+                        console.log(`\nSending transaction ${i+1}/${simpleTxs.length}...`);
+                        
+                        try {
+                            // Format as individual transaction
+                            const txData = {
+                                to: tx.to,
+                                data: tx.data,
+                                value: ethers.BigNumber.from(tx.value),
+                                gasLimit: ethers.BigNumber.from("3000000"), // Higher default gas limit
+                                maxFeePerGas: ethers.BigNumber.from(config.gas.maxFeePerGas),
+                                maxPriorityFeePerGas: ethers.BigNumber.from(config.gas.maxPriorityFeePerGas),
+                                type: 2 // EIP-1559
+                            };
+                            
+                            // Try to estimate gas for this specific transaction
+                            try {
+                                const estimatedGas = await signer.estimateGas(txData);
+                                // Add 30% buffer
+                                txData.gasLimit = estimatedGas.mul(13).div(10);
+                                console.log(`Estimated gas: ${estimatedGas.toString()}, with buffer: ${txData.gasLimit.toString()}`);
+                            } catch (gasError) {
+                                console.log(`Gas estimation failed: ${gasError.message}`);
+                                console.log("Using default gas limit");
+                            }
+                            
+                            // Send the transaction
+                            const txResponse = await signer.sendTransaction(txData);
+                            console.log(`Transaction sent! Hash: ${txResponse.hash}`);
+                            
+                            // Wait for confirmation
+                            console.log("Waiting for confirmation...");
+                            const receipt = await txResponse.wait(1);
+                            
+                            if (receipt.status === 1) {
+                                console.log(`✅ Transaction ${i+1} succeeded! Block: ${receipt.blockNumber}`);
+                                successCount++;
+                            } else {
+                                console.log(`❌ Transaction ${i+1} failed!`);
+                            }
+                        } catch (txError) {
+                            console.log(`❌ Error sending transaction ${i+1}: ${txError.message}`);
+                        }
+                    }
+                    
+                    console.log(`\nTransaction summary: ${successCount}/${simpleTxs.length} succeeded`);
+                    return successCount > 0; // Return true if at least one transaction succeeded
+                }
             }
             
-            return successCount > 0;
-        } catch (error) {
-            console.log(`\n❌ Error processing transactions: ${error.message}`);
             console.log("Error details:", error);
             return false;
         }

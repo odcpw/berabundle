@@ -750,46 +750,33 @@ class MainMenu {
             
             // Special case for EOA swap bundles
             if (format === 'eoa' && bundleData.format === 'eoa' && bundleData.transactions) {
-                console.log("Detected swap bundle - preserving original format");
+                console.log("Detected EOA swap bundle");
                 
-                // Fix transactions for EOA sending - keep EIP-1559 format but remove chainId
-                const fixedTransactions = bundleData.transactions.map(tx => {
-                    // Keep EIP-1559 format but ensure fields are properly formatted
-                    const fixedTx = {
-                        to: tx.to,
-                        from: tx.from,
-                        data: tx.data,
-                        value: tx.value || "0x0",
-                        gasLimit: tx.gasLimit || "0x55555",
-                        maxFeePerGas: tx.maxFeePerGas,
-                        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
-                        type: tx.type // Keep EIP-1559 type
-                    };
-                    
-                    // Remove chainId if present
-                    if (tx.chainId) {
-                        console.log(`Removing tx chainId: ${tx.chainId}`);
-                    }
-                    
-                    console.log(`Prepared transaction: to=${tx.to.substring(0, 10)}...`);
-                    return fixedTx;
-                });
+                // Just pass the bundle directly without wrapping it in bundleData
+                bundle = bundleData;
                 
-                // Create a fixed bundle
-                bundle = {
-                    ...bundleData,
-                    transactions: fixedTransactions,
-                    filepath: bundleFile,
-                    // Add summary info for UI display
-                    summary: {
-                        format: 'eoa',
-                        vaultCount: 0,
-                        rewardSummary: bundleData.formattedTotalExpectedBera || "Unknown",
-                        totalTransactions: fixedTransactions.length
-                    }
-                };
+                // Add filepath for reference
+                bundle.filepath = bundleFile;
+                
+                // Make sure the transactions array is properly formatted
+                console.log(`Bundle contains ${bundle.transactions.length} transactions`);
+                console.log(`First transaction to: ${bundle.transactions[0].to.substring(0, 10)}...`);
+                
+                // Make sure format is set
+                bundle.format = 'eoa';
+            } else if (format === 'eoa' && Array.isArray(bundleData.transactions)) {
+                // Any other EOA format with transactions array
+                console.log("Detected standard EOA bundle");
+                
+                // Pass through directly without wrapping
+                bundle = bundleData;
+                bundle.filepath = bundleFile;
+                bundle.format = 'eoa';
+                
+                console.log(`Bundle contains ${bundle.transactions.length} transactions`);
             } else {
-                // Standard bundle format
+                // Handle Safe or other format
+                console.log("Detected Safe or other bundle format - using bundleData wrapper");
                 bundle = {
                     bundleData: bundleData,
                     summary: {

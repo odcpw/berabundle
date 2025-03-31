@@ -475,17 +475,16 @@ class TokenSwapper {
             walletName
         );
         
-        // Add additional swap information to the bundle
-        if (format === this.tokenService.OutputFormat.EOA) {
-            formattedBundle.totalExpectedBera = swapBundle.totalExpectedBera;
-            formattedBundle.formattedTotalExpectedBera = swapBundle.formattedTotalExpectedBera;
-            formattedBundle.tokenSwaps = tokensWithAmounts.map(token => ({
-                symbol: token.symbol,
-                address: token.address,
-                amount: token.amount,
-                valueUsd: token.priceUsd ? token.amount * token.priceUsd : null
-            }));
-        }
+        // Add additional swap information to the bundle with our standardized format
+        // We store this in top-level properties for easy access
+        formattedBundle.totalExpectedBera = swapBundle.totalExpectedBera;
+        formattedBundle.formattedTotalExpectedBera = swapBundle.formattedTotalExpectedBera;
+        formattedBundle.tokenSwaps = tokensWithAmounts.map(token => ({
+            symbol: token.symbol,
+            address: token.address,
+            amount: token.amount,
+            valueUsd: token.priceUsd ? token.amount * token.priceUsd : null
+        }));
         
         try {
             // Save the bundle to a file and generate Transaction Builder URL if applicable
@@ -506,16 +505,12 @@ class TokenSwapper {
             
             // Handle based on format and execution options
             if (shouldExecute) {
-                // Create bundle object with required properties for signAndSendBundleFlow
-                const bundle = {
-                    bundleData: formattedBundle,
-                    filepath: bundleResult.filepath,
-                    summary: {
-                        format: format,
-                        totalTransactions: allTransactions.length,
-                        rewardSummary: swapBundle.formattedTotalExpectedBera
-                    }
-                };
+                // With our standardized format, formattedBundle already has the correct structure
+                // Just add the filepath from the save result
+                formattedBundle.filepath = bundleResult.filepath;
+                
+                // Use the formattedBundle directly instead of wrapping it again
+                const bundle = formattedBundle;
                 
                 try {
                     // Verify transaction service is available

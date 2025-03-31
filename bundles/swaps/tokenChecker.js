@@ -619,82 +619,83 @@ class TokenService {
             const approvalTxs = transactions.filter(tx => tx.type === 'approval');
             const swapTxs = transactions.filter(tx => !tx.type);
             
-            switch (format) {
-                case OutputFormat.EOA:
-                    // For EOA, format as EIP-1559 transactions
-                    // Don't include chainId in the transactions to avoid mismatches
-                    // Also format for multicall compatibility (unified format)
-                    const formattedTxs = transactions.map(tx => ({
+            // STANDARDIZED FORMAT: Always use the same structure for both EOA and Safe
+            // Only format the transactions differently based on the output type
+            
+            let formattedTxs;
+            const description = this.generateSafeDescription(
+                walletName, 
+                approvalTxs.length, 
+                swapTxs.length, 
+                swapTxs
+            );
+            
+            if (format === OutputFormat.EOA) {
+                // Format transactions for EOA wallet
+                formattedTxs = transactions.map(tx => ({
+                    to: tx.to,
+                    from: fromAddress,
+                    data: tx.data,
+                    value: tx.value || "0x0",
+                    gasLimit: tx.gasLimit || "0x55555",
+                    maxFeePerGas: config.gas.maxFeePerGas,
+                    maxPriorityFeePerGas: config.gas.maxPriorityFeePerGas,
+                    type: "0x2" // EIP-1559 transaction
+                    // No chainId - ethers will add it automatically at send time
+                }));
+            } else {
+                // Format transactions for Safe wallet
+                formattedTxs = transactions.map(tx => {
+                    const isApproval = tx.type === 'approval';
+                    const gasEstimate = isApproval ? GAS_LIMITS.APPROVAL : GAS_LIMITS.SWAP;
+                    const tokenSymbol = tx.token?.symbol || 'token';
+                    
+                    return {
                         to: tx.to,
-                        from: fromAddress,
+                        value: "0",
                         data: tx.data,
-                        value: tx.value || "0x0",
-                        gasLimit: tx.gasLimit || "0x55555",
-                        maxFeePerGas: config.gas.maxFeePerGas,
-                        maxPriorityFeePerGas: config.gas.maxPriorityFeePerGas,
-                        type: "0x2" // EIP-1559 transaction
-                        // No chainId - ethers will add it automatically at send time
-                    }));
-                    
-                    return {
-                        transactions: formattedTxs,
-                        format: 'eoa',
-                        fromAddress,
-                        walletName,
-                        totalTransactions: transactions.length,
-                        approvalCount: approvalTxs.length,
-                        swapCount: swapTxs.length,
-                        timestamp
-                    };
-                
-                case OutputFormat.SAFE_UI:
-                    // Generate description with transaction details
-                    const description = this.generateSafeDescription(
-                        walletName, 
-                        approvalTxs.length, 
-                        swapTxs.length, 
-                        swapTxs
-                    );
-                    
-                    // Map each transaction to Safe format with proper gas estimation
-                    const safeTransactions = transactions.map(tx => {
-                        const isApproval = tx.type === 'approval';
-                        const gasEstimate = isApproval ? GAS_LIMITS.APPROVAL : GAS_LIMITS.SWAP;
-                        const tokenSymbol = tx.token?.symbol || 'token';
-                        
-                        return {
-                            to: tx.to,
-                            value: "0",
-                            data: tx.data,
-                            safeTxGas: gasEstimate.toString(),
-                            // Clean metadata for UI display
-                            contractMethod: { 
-                                name: isApproval ? "approve" : "swap" 
-                            },
-                            contractInputsValues: {
-                                token: tokenSymbol
-                            }
-                        };
-                    });
-                    
-                    return {
-                        version: '1.0',
-                        chainId: parseInt(network.chainId),
-                        createdAt: timestamp,
-                        meta: {
-                            name: `Swap Tokens to BERA - ${walletName}`,
-                            description,
-                            txBuilderVersion: '1.16.1',
-                            createdFromSafeAddress: fromAddress,
-                            createdFromOwnerAddress: '',
-                            checksum: ''
+                        safeTxGas: gasEstimate.toString(),
+                        // Clean metadata for UI display
+                        contractMethod: { 
+                            name: isApproval ? "approve" : "swap" 
                         },
-                        transactions: safeTransactions
+                        contractInputsValues: {
+                            token: tokenSymbol
+                        }
                     };
-                
-                default:
-                    throw new Error(`Unsupported output format: ${format}`);
+                });
             }
+            
+            // STANDARDIZED BUNDLE STRUCTURE - Same for both EOA and Safe
+            return {
+                bundleData: {
+                    version: '1.0',
+                    chainId: parseInt(network.chainId),
+                    createdAt: timestamp,
+                    meta: {
+                        name: `Swap Tokens to BERA - ${walletName}`,
+                        description,
+                        txBuilderVersion: '1.16.1',
+                        createdFromSafeAddress: fromAddress,
+                        createdFromOwnerAddress: '',
+                        from: fromAddress // Add this for EOA compatibility
+                    },
+                    transactions: formattedTxs
+                },
+                summary: {
+                    format: format,
+                    vaultCount: 0,
+                    hasBGTStaker: false,
+                    rewardSummary: "Token Swap",
+                    totalTransactions: transactions.length,
+                    approvalCount: approvalTxs.length,
+                    swapCount: swapTxs.length
+                },
+                format: format,
+                fromAddress: fromAddress,
+                walletName: walletName,
+                timestamp: timestamp
+            };
         } catch (error) {
             ErrorHandler.handle(error, 'TokenService.formatSwapBundle');
             throw error;
@@ -833,7 +834,9 @@ class TokenService {
                     format,
                     approvalCount: bundle.approvalCount || 0,
                     swapCount: bundle.swapCount || 0,
-                    totalTransactions: bundle.totalTransactions || bundle.transactions.length || 0
+                    totalTransactions: bundle.totalTransactions || 
+                        (bundle.bundleData && bundle.bundleData.transactions ? bundle.bundleData.transactions.length : 
+                        (bundle.transactions ? bundle.transactions.length : 0))
                 }
             };
             
