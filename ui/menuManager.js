@@ -17,6 +17,8 @@ class MenuManager {
         this.rewardChecker = app.rewardChecker;
         this.claimBundler = app.claimBundler;
         this.redelegationManager = app.redelegationManager;
+        this.tokenService = app.tokenService;
+        this.tokenSwapper = app.tokenSwapper;
     }
 
     /**
@@ -28,16 +30,18 @@ class MenuManager {
             this.uiHandler.displayHeader("BERABUNDLE");
 
             const options = this.uiHandler.createMenuOptions([
-                // Setup section
-                { key: '1', label: 'Setup Wallets', value: 'wallets' },
-                { key: '2', label: 'Setup Validator Boosting', value: 'validators' },
+                // Function section - the most important at the top
+                { key: '1', label: 'Claim Rewards', value: 'claim' },
+                { key: '2', label: 'Token Balances & Swap', value: 'tokens' },
+                { key: '3', label: 'Send Bundle', value: 'send' },
                 
                 // Spacer
                 { key: '', label: '', value: 'spacer' },
                 
-                // Rewards section
-                { key: '3', label: 'Claim Rewards', value: 'claim' },
-                { key: '4', label: 'Send Bundle', value: 'send' }
+                // Setup options (without the header that confuses users)
+                { key: '4', label: 'Update Metadata', value: 'update_metadata' },
+                { key: '5', label: 'Setup Wallets', value: 'wallets' },
+                { key: '6', label: 'Setup Validator Boosting', value: 'validators' }
             ], false, true, '', 'Exit');
 
             this.uiHandler.displayMenu(options);
@@ -55,11 +59,21 @@ class MenuManager {
                 case 'claim':
                     await this.claimRewardsMenu();
                     break;
+                case 'tokens':
+                    await this.tokenBalancesMenu();
+                    break;
                 case 'send':
                     await this.sendBundleMenu();
                     break;
+                case 'updateTokens':
+                    await this.updateTokenListMenu();
+                    break;
+                case 'update_metadata':
+                    await this.updateMetadataMenu();
+                    break;
                 case 'spacer':
-                    // Do nothing for spacer
+                case 'spacer2':
+                    // Do nothing for spacers
                     break;
                 case 'quit':
                     this.uiHandler.clearScreen();
@@ -1455,6 +1469,155 @@ class MenuManager {
         }
         
         await this.uiHandler.pause();
+    }
+
+    /**
+     * Update token list menu
+     */
+    async updateTokenListMenu() {
+        this.uiHandler.clearScreen();
+        this.uiHandler.displayHeader("UPDATE TOKEN LIST");
+        
+        console.log("\nUpdating token list from OogaBooga API...");
+        this.uiHandler.startProgress(100, "Fetching token data...");
+        
+        // Directly use the tokenService to update token list
+        const success = await this.app.tokenService.updateTokenList();
+        
+        this.uiHandler.stopProgress();
+        
+        if (success) {
+            console.log("\n✓ Token list updated successfully!");
+        } else {
+            console.log("\n✗ Failed to update token list.");
+            console.log("\nThis could be due to API issues. Please verify your API key in the .env file:");
+            console.log(`  OOGABOOGA_API_KEY=${process.env.OOGABOOGA_API_KEY || 'Not set'}`);
+        }
+        
+        await this.uiHandler.pause();
+    }
+
+    /**
+     * Token balances menu
+     */
+    async tokenBalancesMenu() {
+        this.uiHandler.clearScreen();
+        this.uiHandler.displayHeader("TOKEN BALANCES & SWAP");
+
+        // Get wallets
+        const wallets = this.walletService.getWallets();
+        const walletEntries = Object.entries(wallets);
+
+        if (walletEntries.length === 0) {
+            console.log("\nNo wallets found. Please add a wallet first.");
+            await this.uiHandler.pause();
+            return;
+        }
+
+        // Display wallet options as part of the menu
+        console.log("\nSelect Wallet:");
+        
+        // Create wallet options for the menu
+        const walletOptions = walletEntries.map(([name, address], index) => ({
+            key: (index + 1).toString(),
+            label: `${name} (${address})`,
+            value: { name, address }
+        }));
+
+        const options = this.uiHandler.createMenuOptions(walletOptions);
+
+        this.uiHandler.displayMenu(options);
+        this.uiHandler.displayFooter();
+
+        const choice = await this.uiHandler.getSelection(options);
+
+        if (choice === 'back') {
+            return;
+        }
+
+        if (choice === 'quit') {
+            process.exit(0);
+        }
+
+        // Process specific wallet
+        const { name, address } = choice;
+        await this.tokenSwapper.displayTokenBalances(address, name);
+    }
+
+    /**
+     * Update Metadata Menu
+     * Provides options to update different types of metadata
+     */
+    async updateMetadataMenu() {
+        this.uiHandler.clearScreen();
+        this.uiHandler.displayHeader("UPDATE METADATA");
+
+        // Show metadata update options
+        const options = this.uiHandler.createMenuOptions([
+            { key: '1', label: 'Update All Metadata (Vaults, Validators, All Tokens)', value: 'all' },
+            { key: '2', label: 'Update Token List from OogaBooga API', value: 'tokens' },
+            { key: '3', label: 'Update Vaults, Validators & Tokens from GitHub', value: 'vaults_validators' }
+        ], true, false);
+
+        this.uiHandler.displayMenu(options);
+        this.uiHandler.displayFooter();
+
+        const choice = await this.uiHandler.getSelection(options);
+
+        if (choice === 'back' || choice === 'quit') {
+            return choice === 'quit' ? process.exit(0) : undefined;
+        }
+
+        switch (choice) {
+            case 'all':
+                // Update all metadata
+                this.uiHandler.clearScreen();
+                this.uiHandler.displayHeader("UPDATE ALL METADATA");
+                
+                console.log("\nUpdating all metadata (vaults, validators, tokens)...");
+                
+                this.uiHandler.startProgress(100, "Updating metadata from GitHub...");
+                // First update validators and vaults from GitHub
+                await this.rewardChecker.updateAllMetadata();
+                this.uiHandler.stopProgress();
+                
+                console.log("\nNow updating token list from OogaBooga API...");
+                this.uiHandler.startProgress(100, "Fetching token data...");
+                // Then update tokens from OogaBooga API
+                const tokenSuccess = await this.tokenService.updateTokenList();
+                this.uiHandler.stopProgress();
+                
+                if (tokenSuccess) {
+                    console.log("\n✓ All metadata updated successfully!");
+                } else {
+                    console.log("\n✓ Vaults and validators updated successfully!");
+                    console.log("\n✗ Token list update failed. Please check your API key.");
+                }
+                
+                await this.uiHandler.pause();
+                break;
+                
+            case 'tokens':
+                // Just update tokens using the existing method
+                await this.updateTokenListMenu();
+                break;
+                
+            case 'vaults_validators':
+                // Update vaults, validators, and GitHub token list
+                this.uiHandler.clearScreen();
+                this.uiHandler.displayHeader("UPDATE GITHUB METADATA");
+                
+                console.log("\nUpdating vaults, validators, and tokens from GitHub...");
+                
+                this.uiHandler.startProgress(100, "Fetching data from GitHub...");
+                await this.rewardChecker.updateAllMetadata();
+                this.uiHandler.stopProgress();
+                
+                console.log("\n✓ Vaults, validators, and GitHub tokens updated successfully!");
+                
+                await this.uiHandler.pause();
+                break;
+        }
     }
 }
 

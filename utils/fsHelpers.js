@@ -1,4 +1,15 @@
-// fsHelpers.js - File system helper functions
+/**
+ * FSHelpers - File system utilities for the BeraBundle application
+ * 
+ * This utility class provides centralized methods for:
+ * - Directory creation and verification
+ * - File existence checking
+ * - Security operations like clipboard clearing
+ * 
+ * These utilities are used across the application to ensure
+ * consistent file system operations and error handling.
+ */
+
 const fs = require('fs').promises;
 const config = require('../config');
 const { execPromise } = require('./execPromise');
@@ -9,7 +20,13 @@ const { ErrorHandler } = require('./errorHandler');
  */
 class FSHelpers {
     /**
-     * Ensure all required directories exist
+     * Creates all required application directories if they don't exist
+     * 
+     * Ensures that the output, metadata, and user preferences directories
+     * defined in the application config are available. Creates them with
+     * recursive mode if needed.
+     * 
+     * @returns {Promise<boolean>} True if all directories were verified/created, false otherwise
      */
     static async ensureDirectoriesExist() {
         try {
@@ -38,8 +55,31 @@ class FSHelpers {
     }
 
     /**
-     * Clear the clipboard for security
-     * @returns {Promise<boolean>}
+     * Checks if a file exists at the specified path
+     * 
+     * This is a centralized utility method used throughout the application
+     * to safely check for file existence without throwing exceptions.
+     * 
+     * @param {string} filePath - Absolute path to the file to check
+     * @returns {Promise<boolean>} True if the file exists and is accessible, false otherwise
+     */
+    static async fileExists(filePath) {
+        try {
+            await fs.access(filePath);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * Clears the system clipboard for security purposes
+     * 
+     * Used after sensitive information (like private keys) might have been
+     * copied to the clipboard. Provides platform-specific implementations
+     * for Linux, macOS and Windows.
+     * 
+     * @returns {Promise<boolean>} True if clipboard was successfully cleared, false otherwise
      */
     static async clearClipboard() {
         try {
