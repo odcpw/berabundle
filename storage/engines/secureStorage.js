@@ -1,14 +1,23 @@
-// secureStorage.js - Secure storage utilities for sensitive information
+/**
+ * secureStorage.js - Secure storage engine for sensitive information
+ * 
+ * Provides encryption and secure storage for sensitive information like private keys.
+ * Uses AES-256-GCM with proper key derivation for maximum security.
+ */
+
 const crypto = require('crypto');
 const fs = require('fs').promises;
 const path = require('path');
-const config = require('../config');
-const { ErrorHandler } = require('../utils/errorHandler');
+const config = require('../../config');
+const { ErrorHandler } = require('../../utils/errorHandler');
 
 /**
  * SecureStorage class for handling encrypted storage of sensitive information
  */
 class SecureStorage {
+    /**
+     * Create a new SecureStorage instance
+     */
     constructor() {
         this.ENCRYPTION_KEY_SIZE = 32; // 256 bits
         this.ALGORITHM = 'aes-256-gcm';
@@ -20,6 +29,7 @@ class SecureStorage {
 
     /**
      * Ensure the user preferences directory exists
+     * @returns {Promise<boolean>} True if the directory exists or was created
      */
     async ensureUserPrefsDirExists() {
         try {

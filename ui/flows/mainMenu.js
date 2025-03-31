@@ -1,30 +1,179 @@
 // menuManager.js - Manages menu navigation and user flows
-const config = require('../config');
-const { ErrorHandler } = require('../utils/errorHandler');
+const config = require('../../config');
+const { ErrorHandler } = require('../../utils/errorHandler');
 const fs = require('fs').promises;
 const path = require('path');
 const inquirer = require('inquirer');
-const { OutputFormat } = require('../services/claimBundler');
+const { OutputFormat } = require('../../bundles/claims/claimBundler');
+const MetadataFetcher = require('../../utils/metadataFetcher');
 
 /**
  * Manages all menu flows and user interactions
  */
-class MenuManager {
+class MainMenu {
     constructor(app) {
         this.app = app;
         this.uiHandler = app.uiHandler;
-        this.walletService = app.walletService;
-        this.rewardChecker = app.rewardChecker;
-        this.claimBundler = app.claimBundler;
-        this.redelegationManager = app.redelegationManager;
-        this.tokenService = app.tokenService;
-        this.tokenSwapper = app.tokenSwapper;
+        this.progressTracker = app.progressTracker;
+        
+        // Repositories
+        this.walletRepository = app.walletRepository;
+        this.apiKeyRepository = app.apiKeyRepository;
+        this.preferencesRepository = app.preferencesRepository;
+        this.bundleRepository = app.bundleRepository;
+        
+        // Core components
+        this.bundleCreator = app.bundleCreator;
+        this.eoaExecutor = app.eoaExecutor;
+        this.safeExecutor = app.safeExecutor;
+        
+        // Temporary backwards compatibility
+        this.walletService = app.walletRepository;
+        
+        // Get services with fallbacks
+        this.claimBundler = app && app.bundleCreator ? app.bundleCreator : null;
+        this.redelegationManager = app && app.redelegationManager ? app.redelegationManager : null;
+        
+        // Initialize token services directly from bundleCreator to avoid fallbacks later
+        if (app && app.bundleCreator && app.bundleCreator.getSwapBundler) {
+            if (!app.tokenSwapper) {
+                console.log("Initializing token services during constructor...");
+                app.tokenSwapper = app.bundleCreator.getSwapBundler();
+                app.tokenService = app.tokenSwapper.tokenService;
+            }
+            this.tokenService = app.tokenService;
+            this.tokenSwapper = app.tokenSwapper;
+        } else {
+            this.tokenService = app && app.tokenService ? app.tokenService : null;
+            this.tokenSwapper = app && app.tokenSwapper ? app.tokenSwapper : null;
+        }
+        
+        // Flag for services that need initialization
+        this.needsServiceInit = true;
+        
+        // Metadata fetcher utility
+        this.metadataFetcher = new MetadataFetcher();
+        
+        // Set up rewardChecker with fallback
+        if (app && app.rewardChecker) {
+            this.rewardChecker = app.rewardChecker;
+            console.log("Using rewardChecker from app");
+        } else if (app && app.bundleCreator && app.bundleCreator.getClaimBundler) {
+            try {
+                // Try to get it from the ClaimBundler
+                const claimBundler = app.bundleCreator.getClaimBundler();
+                if (claimBundler && claimBundler.rewardChecker) {
+                    this.rewardChecker = claimBundler.rewardChecker;
+                    console.log("Successfully obtained rewardChecker from ClaimBundler");
+                } else {
+                    throw new Error("RewardChecker not available in ClaimBundler");
+                }
+            } catch (error) {
+                // Create a fallback rewardChecker if not available
+                console.log("Creating a new RewardChecker instance");
+                const { ethers } = require('ethers');
+                const RewardChecker = require('../../bundles/claims/rewardChecker');
+                const provider = new ethers.providers.JsonRpcProvider(config.networks.berachain.rpcUrl);
+                this.rewardChecker = new RewardChecker(provider);
+            }
+        } else {
+            // Create a new instance directly
+            console.log("Creating a standalone RewardChecker instance");
+            const { ethers } = require('ethers');
+            const RewardChecker = require('../../bundles/claims/rewardChecker');
+            const provider = new ethers.providers.JsonRpcProvider(config.networks.berachain.rpcUrl);
+            this.rewardChecker = new RewardChecker(provider);
+        }
+        
+        // Set up redelegationManager
+        if (app && app.redelegationManager) {
+            this.redelegationManager = app.redelegationManager;
+            console.log("Using redelegationManager from app");
+        } else if (app && app.bundleCreator && app.bundleCreator.getBoostBundler) {
+            try {
+                // Get it from the bundleCreator
+                this.redelegationManager = app.bundleCreator.getBoostBundler();
+                console.log("Successfully obtained RedelegationManager from bundleCreator");
+            } catch (error) {
+                console.log(`⚠️ Error getting RedelegationManager from bundleCreator: ${error.message}`);
+            }
+        } else {
+            // Try to initialize proper RedelegationManager
+            try {
+                const RedelegationManager = require('../../bundles/boosts/boostBundler');
+                
+                // Create a new instance with a new provider
+                const ethers = require('ethers');
+                const provider = new ethers.providers.JsonRpcProvider(config.networks.berachain.rpcUrl);
+                
+                this.redelegationManager = new RedelegationManager(provider);
+                this.needsRedelegationManagerInit = true;
+                console.log("Created new RedelegationManager instance with explicit provider");
+            } catch (error) {
+                console.log(`⚠️ Could not initialize RedelegationManager: ${error.message}`);
+            }
+        }
     }
 
     /**
      * Main menu handler
      */
     async mainMenu() {
+        // Initialize redelegationManager if needed
+        if (this.needsRedelegationManagerInit && this.redelegationManager && this.redelegationManager.initialize) {
+            try {
+                console.log("Initializing RedelegationManager...");
+                
+                // Make sure provider is initialized if using app's provider
+                if (this.app && this.app.getProvider && this.redelegationManager.provider === undefined) {
+                    this.redelegationManager.provider = this.app.getProvider();
+                    console.log("Updated RedelegationManager with provider from app");
+                }
+                
+                const initResult = await this.redelegationManager.initialize();
+                
+                if (initResult) {
+                    console.log("RedelegationManager initialized successfully");
+                } else {
+                    console.warn("Warning: RedelegationManager initialization returned false");
+                }
+            } catch (error) {
+                console.warn(`Warning: RedelegationManager initialization failed: ${error.message}`);
+            }
+            this.needsRedelegationManagerInit = false;
+        }
+        
+        // Try to get or create ClaimBundler if not available
+        if (!this.claimBundler) {
+            // First, try to get it from bundleCreator if available
+            if (this.app && this.app.bundleCreator && this.app.bundleCreator.getClaimBundler) {
+                try {
+                    console.log("Getting ClaimBundler from bundleCreator...");
+                    this.claimBundler = this.app.bundleCreator.getClaimBundler();
+                    console.log("Successfully obtained ClaimBundler from bundleCreator");
+                } catch (error) {
+                    console.warn(`Warning: Failed to get ClaimBundler from bundleCreator: ${error.message}`);
+                }
+            }
+            
+            // If still not available, create a new instance
+            if (!this.claimBundler) {
+                try {
+                    console.log("Creating new ClaimBundler instance...");
+                    const { ClaimBundler } = require('../../bundles/claims/claimBundler');
+                    
+                    // Create a new provider explicitly
+                    const ethers = require('ethers');
+                    const provider = new ethers.providers.JsonRpcProvider(config.networks.berachain.rpcUrl);
+                    
+                    this.claimBundler = new ClaimBundler(provider);
+                    console.log("ClaimBundler initialized successfully with explicit provider");
+                } catch (error) {
+                    console.warn(`Warning: Failed to create new ClaimBundler: ${error.message}`);
+                }
+            }
+        }
+        
         while (true) {
             this.uiHandler.clearScreen();
             this.uiHandler.displayHeader("BERABUNDLE");
@@ -41,7 +190,8 @@ class MenuManager {
                 // Setup options (without the header that confuses users)
                 { key: '4', label: 'Update Metadata', value: 'update_metadata' },
                 { key: '5', label: 'Setup Wallets', value: 'wallets' },
-                { key: '6', label: 'Setup Validator Boosting', value: 'validators' }
+                { key: '6', label: 'Setup Validator Boosting', value: 'validators' },
+                { key: '7', label: 'Configure API Keys', value: 'api_keys' }
             ], false, true, '', 'Exit');
 
             this.uiHandler.displayMenu(options);
@@ -70,6 +220,9 @@ class MenuManager {
                     break;
                 case 'update_metadata':
                     await this.updateMetadataMenu();
+                    break;
+                case 'api_keys':
+                    await this.apiKeysMenu();
                     break;
                 case 'spacer':
                 case 'spacer2':
@@ -475,9 +628,32 @@ class MenuManager {
             // Load the selected bundle file
             const bundleFile = path.join(config.paths.outputDir, choice);
             const bundleContent = await fs.readFile(bundleFile, 'utf8');
-            const bundleData = JSON.parse(bundleContent);
+            let bundleData;
             
-            // Create a simplified bundle object for the signAndSendBundleFlow
+            try {
+                bundleData = JSON.parse(bundleContent);
+                console.log(`Successfully parsed bundle file: ${choice}`);
+                
+                // Log some basic information about the bundle
+                if (bundleData.format) {
+                    console.log(`Bundle format: ${bundleData.format}`);
+                }
+                
+                if (bundleData.transactions) {
+                    console.log(`Transaction count: ${bundleData.transactions.length}`);
+                    if (bundleData.transactions.length > 0) {
+                        const firstTx = bundleData.transactions[0];
+                        console.log(`First transaction to: ${firstTx.to.substring(0, 10)}...`);
+                    }
+                }
+            } catch (parseError) {
+                console.log(`\n❌ Error parsing bundle file: ${parseError.message}`);
+                console.log("The file might be corrupted or not in valid JSON format.");
+                await this.uiHandler.pause();
+                return;
+            }
+            
+            // Determine format based on filename and content
             let format;
             if (choice.includes('_eoa.json')) {
                 format = 'eoa';
@@ -487,12 +663,21 @@ class MenuManager {
                 format = 'safe_cli';
             } else {
                 // Try to determine format from the content
-                if (Array.isArray(bundleData)) {
+                if (bundleData.format === 'eoa') {
+                    format = 'eoa';
+                } else if (Array.isArray(bundleData)) {
                     format = 'eoa';
                 } else if (bundleData.transactions && bundleData.meta) {
                     format = 'safe_ui';
                 } else {
-                    format = 'unknown';
+                    // Check if it has a transactions array and other EOA-like properties
+                    if (bundleData.transactions && Array.isArray(bundleData.transactions)) {
+                        if (bundleData.transactions.length > 0 && bundleData.transactions[0].type === '0x2') {
+                            format = 'eoa';
+                        }
+                    } else {
+                        format = 'unknown';
+                    }
                 }
             }
             
@@ -561,20 +746,65 @@ class MenuManager {
             }
             
             // Create a simplified bundle object
-            const bundle = {
-                bundleData: bundleData,
-                summary: {
-                    format: format,
-                    vaultCount: vaultCount,
-                    hasBGTStaker: hasBGTStaker,
-                    rewardSummary: rewardSummary,
-                    rewardsByType: rewardsByType,
-                    redelegationCount: redelegationCount,
-                    totalTransactions: Array.isArray(bundleData) ? bundleData.length : 
-                                      (bundleData.transactions ? bundleData.transactions.length : 0),
-                    includesRedelegation: redelegationCount > 0
-                }
-            };
+            let bundle;
+            
+            // Special case for EOA swap bundles
+            if (format === 'eoa' && bundleData.format === 'eoa' && bundleData.transactions) {
+                console.log("Detected swap bundle - preserving original format");
+                
+                // Fix transactions for EOA sending - keep EIP-1559 format but remove chainId
+                const fixedTransactions = bundleData.transactions.map(tx => {
+                    // Keep EIP-1559 format but ensure fields are properly formatted
+                    const fixedTx = {
+                        to: tx.to,
+                        from: tx.from,
+                        data: tx.data,
+                        value: tx.value || "0x0",
+                        gasLimit: tx.gasLimit || "0x55555",
+                        maxFeePerGas: tx.maxFeePerGas,
+                        maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+                        type: tx.type // Keep EIP-1559 type
+                    };
+                    
+                    // Remove chainId if present
+                    if (tx.chainId) {
+                        console.log(`Removing tx chainId: ${tx.chainId}`);
+                    }
+                    
+                    console.log(`Prepared transaction: to=${tx.to.substring(0, 10)}...`);
+                    return fixedTx;
+                });
+                
+                // Create a fixed bundle
+                bundle = {
+                    ...bundleData,
+                    transactions: fixedTransactions,
+                    filepath: bundleFile,
+                    // Add summary info for UI display
+                    summary: {
+                        format: 'eoa',
+                        vaultCount: 0,
+                        rewardSummary: bundleData.formattedTotalExpectedBera || "Unknown",
+                        totalTransactions: fixedTransactions.length
+                    }
+                };
+            } else {
+                // Standard bundle format
+                bundle = {
+                    bundleData: bundleData,
+                    summary: {
+                        format: format,
+                        vaultCount: vaultCount,
+                        hasBGTStaker: hasBGTStaker,
+                        rewardSummary: rewardSummary,
+                        rewardsByType: rewardsByType,
+                        redelegationCount: redelegationCount,
+                        totalTransactions: Array.isArray(bundleData) ? bundleData.length : 
+                                          (bundleData.transactions ? bundleData.transactions.length : 0),
+                        includesRedelegation: redelegationCount > 0
+                    }
+                };
+            }
             
             // Pass the bundle to the transaction service for sending
             await this.app.transactionService.signAndSendBundleFlow(bundle);
@@ -766,6 +996,44 @@ class MenuManager {
     async claimRewardsMenu() {
         this.uiHandler.clearScreen();
         this.uiHandler.displayHeader("CLAIM REWARDS");
+        
+        // Try to get or create ClaimBundler if not available
+        if (!this.claimBundler) {
+            // First, try to get it from bundleCreator if available
+            if (this.app && this.app.bundleCreator && this.app.bundleCreator.getClaimBundler) {
+                try {
+                    console.log("Getting ClaimBundler from bundleCreator...");
+                    this.claimBundler = this.app.bundleCreator.getClaimBundler();
+                    console.log("Successfully obtained ClaimBundler from bundleCreator");
+                } catch (error) {
+                    console.log(`❌ Error: Failed to get ClaimBundler from bundleCreator: ${error.message}`);
+                }
+            }
+            
+            // If still not available, create a new instance
+            if (!this.claimBundler) {
+                try {
+                    console.log("Creating new ClaimBundler instance...");
+                    const { ClaimBundler } = require('../../bundles/claims/claimBundler');
+                    const provider = this.app && this.app.getProvider ? this.app.getProvider() : null;
+                    
+                    if (provider) {
+                        this.claimBundler = new ClaimBundler(provider);
+                        console.log("ClaimBundler initialized successfully");
+                    } else {
+                        console.log("❌ Error: Cannot initialize ClaimBundler - no provider available");
+                        console.log("Please restart the application and try again.");
+                        await this.uiHandler.pause();
+                        return;
+                    }
+                } catch (error) {
+                    console.log(`❌ Error: Failed to create new ClaimBundler: ${error.message}`);
+                    console.log("Please make sure you have the latest version of the application.");
+                    await this.uiHandler.pause();
+                    return;
+                }
+            }
+        }
 
         // Get wallets but don't display them here
         const wallets = this.walletService.getWallets();
@@ -816,39 +1084,55 @@ class MenuManager {
         this.uiHandler.clearScreen();
         console.log(`Processing claims for ${name} (${address})...\n`);
 
-        // Check rewards first
-        this.uiHandler.startProgress(100, "Checking for claimable rewards...");
-
-        const rewardInfo = await this.rewardChecker.checkAllRewards(
-            address, true, true,
-            (current, total, status) => {
-                const percentage = Math.floor((current / total) * 100);
-                this.uiHandler.updateProgress(percentage, status);
-            },
-            false // Don't include validator boosts here
-        );
-
-        this.uiHandler.stopProgress();
-
-        // Handle the new format where we have rewards and validatorBoosts
-        const rewards = rewardInfo.rewards || rewardInfo;
-
-        // Filter rewards that are claimable
-        const claimableRewards = rewards.filter(item =>
-            item.earned && parseFloat(item.earned) > 0
-        );
-
-        if (claimableRewards.length === 0) {
-            console.log("No rewards to claim for this wallet.");
+        // Check if rewardChecker is available
+        if (!this.rewardChecker) {
+            console.log("❌ Error: Reward checker is not available.");
             await this.uiHandler.pause();
             return;
         }
 
-        // Display reward summary
-        console.log("Claimable Rewards:");
-        console.log("═════════════════════════════════════════");
-        console.log(this.uiHandler.formatRewardSummary(claimableRewards));
-        console.log("═════════════════════════════════════════");
+        // Check rewards first
+        this.uiHandler.startProgress(100, "Checking for claimable rewards...");
+
+        let claimableRewards = [];
+        
+        try {
+            const rewardInfo = await this.rewardChecker.checkAllRewards(
+                address, true, true,
+                (current, total, status) => {
+                    const percentage = Math.floor((current / total) * 100);
+                    this.uiHandler.updateProgress(percentage, status);
+                },
+                false // Don't include validator boosts here
+            );
+
+            this.uiHandler.stopProgress();
+
+            // Handle the new format where we have rewards and validatorBoosts
+            const rewards = rewardInfo.rewards || rewardInfo;
+            
+            // Filter rewards that are claimable
+            claimableRewards = rewards.filter(item =>
+                item.earned && parseFloat(item.earned) > 0
+            );
+
+            if (claimableRewards.length === 0) {
+                console.log("No rewards to claim for this wallet.");
+                await this.uiHandler.pause();
+                return;
+            }
+            
+            // Display reward summary
+            console.log("Claimable Rewards:");
+            console.log("═════════════════════════════════════════");
+            console.log(this.uiHandler.formatRewardSummary(claimableRewards));
+            console.log("═════════════════════════════════════════");
+        } catch (error) {
+            this.uiHandler.stopProgress();
+            console.log(`\n❌ Error checking rewards: ${error.message}`);
+            await this.uiHandler.pause();
+            return;
+        }
 
         // Step 1: Confirm claim
         const proceedWithClaim = await this.uiHandler.confirm(
@@ -887,73 +1171,106 @@ class MenuManager {
         // Step 3: Check if user wants to redelegate BGT rewards
         let includeRedelegation = false;
         
-        // Check if wallet has delegation preferences
-        const userPrefs = this.redelegationManager.getUserPreferences(address);
-        const hasValidPrefs = userPrefs.validators && userPrefs.validators.length > 0;
-        
-        if (hasValidPrefs) {
-            // Check if any BGT rewards are included
-            const hasBgtRewards = claimableRewards.some(reward => 
-                reward.rewardToken && reward.rewardToken.symbol === 'BGT' && 
-                parseFloat(reward.earned) > 0
-            );
-            
-            if (hasBgtRewards) {
-                console.log("\nYou have BGT rewards and delegation preferences set.");
-                console.log("\nCurrent Delegation Preferences:");
+        // Check if redelegationManager is available
+        if (!this.redelegationManager) {
+            console.log("\n⚠️ Redelegation manager is not available. Skipping delegation preferences.");
+            // Continue without redelegation
+        } else {
+            try {
+                // Check if wallet has delegation preferences
+                const userPrefs = this.redelegationManager.getUserPreferences(address);
+                const hasValidPrefs = userPrefs && userPrefs.validators && userPrefs.validators.length > 0;
                 
-                for (const validator of userPrefs.validators) {
-                    const allocation = userPrefs.allocations ? userPrefs.allocations[validator.pubkey] || 0 : 0;
-                    console.log(`- ${validator.name} (${validator.pubkey.substring(0, 10)}...): ${allocation}%`);
-                }
-                
-                includeRedelegation = await this.uiHandler.confirm(
-                    "\nWould you like to redelegate your BGT rewards to these validators?"
-                );
-            }
-        } else if (claimableRewards.some(r => r.rewardToken && r.rewardToken.symbol === 'BGT')) {
-            console.log("\nYou have BGT rewards but no delegation preferences set.");
-            const setupNow = await this.uiHandler.confirm(
-                "Would you like to set up delegation preferences now?"
-            );
-            
-            if (setupNow) {
-                await this.validatorMenu(address);
-                // Refresh preferences after setup
-                const updatedPrefs = this.redelegationManager.getUserPreferences(address);
-                if (updatedPrefs.validators && updatedPrefs.validators.length > 0) {
-                    includeRedelegation = await this.uiHandler.confirm(
-                        "\nWould you like to redelegate your BGT rewards to these validators?"
+                if (hasValidPrefs) {
+                    // Check if any BGT rewards are included
+                    const hasBgtRewards = claimableRewards.some(reward => 
+                        reward.rewardToken && reward.rewardToken.symbol === 'BGT' && 
+                        parseFloat(reward.earned) > 0
                     );
+                    
+                    if (hasBgtRewards) {
+                        console.log("\nYou have BGT rewards and delegation preferences set.");
+                        console.log("\nCurrent Delegation Preferences:");
+                        
+                        for (const validator of userPrefs.validators) {
+                            const allocation = userPrefs.allocations ? userPrefs.allocations[validator.pubkey] || 0 : 0;
+                            console.log(`- ${validator.name} (${validator.pubkey.substring(0, 10)}...): ${allocation}%`);
+                        }
+                        
+                        includeRedelegation = await this.uiHandler.confirm(
+                            "\nWould you like to redelegate your BGT rewards to these validators?"
+                        );
+                    }
+                } else if (claimableRewards.some(r => r.rewardToken && r.rewardToken.symbol === 'BGT')) {
+                    console.log("\nYou have BGT rewards but no delegation preferences set.");
+                    const setupNow = await this.uiHandler.confirm(
+                        "Would you like to set up delegation preferences now?"
+                    );
+                    
+                    if (setupNow) {
+                        await this.validatorMenu(address);
+                        // Refresh preferences after setup
+                        const updatedPrefs = this.redelegationManager.getUserPreferences(address);
+                        if (updatedPrefs && updatedPrefs.validators && updatedPrefs.validators.length > 0) {
+                            includeRedelegation = await this.uiHandler.confirm(
+                                "\nWould you like to redelegate your BGT rewards to these validators?"
+                            );
+                        }
+                    }
                 }
+            } catch (error) {
+                console.log(`\n⚠️ Error accessing delegation preferences: ${error.message}`);
+                console.log("Continuing without redelegation");
             }
         }
 
-        // Step 4: Select transaction format
+        // Step 4: Select transaction format and execution option
         // We can't reliably detect wallet type just based on private key presence
         // The user might be using a hardware wallet, watch-only EOA, or other non-Safe wallet
-        console.log("\nSelect transaction format:");
+        console.log("\nSelect transaction format and execution option:");
         const formatOptions = this.uiHandler.createMenuOptions([
-            { key: '1', label: 'EOA Wallet', value: OutputFormat.EOA },
-            { key: '2', label: 'Safe Multisig', value: OutputFormat.SAFE_UI }
+            { key: '1', label: 'EOA Wallet (JSON only)', value: { format: OutputFormat.EOA, execute: false } },
+            { key: '2', label: 'EOA Wallet (JSON + Execute)', value: { format: OutputFormat.EOA, execute: true } },
+            { key: '3', label: 'Safe Multisig (JSON only)', value: { format: OutputFormat.SAFE_UI, execute: false } },
+            { key: '4', label: 'Safe Multisig (JSON + Propose & Sign)', value: { format: OutputFormat.SAFE_UI, execute: true } }
         ], true, false);
 
         this.uiHandler.displayMenu(formatOptions);
-        const formatChoice = await this.uiHandler.getSelection(formatOptions);
+        const formatChoiceObj = await this.uiHandler.getSelection(formatOptions);
+        
+        // Extract format and execute flag
+        const formatChoice = formatChoiceObj.format;
+        const shouldExecute = formatChoiceObj.execute;
+
+        // Check if claimBundler is available
+        if (!this.claimBundler) {
+            console.log("\n❌ Error: Claim bundler service is not available.");
+            console.log("Please restart the application and try again.");
+            await this.uiHandler.pause();
+            return;
+        }
 
         // Generate the claim bundle
         console.log("\nGenerating claim bundle...");
-        const bundle = await this.claimBundler.generateClaimBundle(
-            claimableRewards,
-            address,
-            recipient,
-            formatChoice,
-            name,
-            { redelegate: includeRedelegation }
-        );
+        let bundle;
+        
+        try {
+            bundle = await this.claimBundler.generateClaimBundle(
+                claimableRewards,
+                address,
+                recipient,
+                formatChoice,
+                name,
+                { redelegate: includeRedelegation }
+            );
 
-        if (!bundle.success) {
-            console.log(`Error: ${bundle.message}`);
+            if (!bundle.success) {
+                console.log(`Error: ${bundle.message}`);
+                await this.uiHandler.pause();
+                return;
+            }
+        } catch (error) {
+            console.log(`\n❌ Error generating claim bundle: ${error.message}`);
             await this.uiHandler.pause();
             return;
         }
@@ -971,24 +1288,56 @@ class MenuManager {
         console.log(`Rewards: ${bundle.summary.rewardSummary}`);
         console.log(`Total transactions: ${bundle.summary.totalTransactions}`);
         
-        // Display information based on wallet type
-        if (formatChoice === OutputFormat.EOA) {
-            // For EOA wallets
-            console.log(`\nClaim bundle saved to ${bundle.filepath}`);
+        // Display information based on wallet type and execute option
+        console.log(`\nClaim bundle saved to ${bundle.filepath}`);
+        
+        if (shouldExecute) {
+            // Check if transactionService is available
+            if (!this.app || !this.app.transactionService) {
+                console.log("\n❌ Error: Transaction service is not available.");
+                console.log("Bundle has been saved but cannot be executed at this time.");
+                await this.uiHandler.pause();
+                return;
+            }
             
-            // Ask if user wants to sign and send the bundle with a private key
-            const signBundle = await this.uiHandler.confirm("\nWould you like to sign and send this bundle with a private key?");
-            
-            if (signBundle) {
-                await this.app.transactionService.signAndSendBundleFlow(bundle);
+            try {
+                // User selected an execution option
+                if (formatChoice === OutputFormat.EOA) {
+                    // For EOA wallets - execute immediately
+                    console.log("\nExecuting transactions with your private key...");
+                    await this.app.transactionService.signAndSendBundleFlow(bundle);
+                } else {
+                    // For Safe wallets - propose and sign
+                    console.log("\nProposing and signing transactions for Safe...");
+                    await this.app.transactionService.signAndSendBundleFlow(bundle);
+                }
+            } catch (error) {
+                console.log(`\n❌ Error executing transactions: ${error.message}`);
             }
         } else {
-            // For Safe wallets - show direct transaction builder link
-            console.log(`\nTo use this file with Safe:
+            // JSON only option - just provide instructions
+            if (formatChoice === OutputFormat.EOA) {
+                // For EOA wallets
+                console.log("\nThe transaction bundle has been saved as JSON only. You can:");
+                console.log("1. Use this file later with the 'Send Bundle' option from the main menu");
+                console.log("2. Import it into your wallet of choice that supports batch transactions");
+            } else {
+                // For Safe wallets - show Safe Transaction Builder instructions
+                if (bundle.safeInstructions) {
+                    console.log(`\n📋 Instructions to import transactions into Safe:`);
+                    bundle.safeInstructions.instructions.forEach(instruction => {
+                        console.log(instruction);
+                    });
+                    console.log(`5. Select the saved file at:\n   ${bundle.filepath}`);
+                } else {
+                    // Fallback if safeInstructions not available
+                    console.log(`\nTo use this file with Safe:
 1. Go to https://app.safe.global/home?safe=ber:${recipient}
 2. Click "New Transaction" > "Transaction Builder"
 3. Click "Load" and select the generated file at:
    ${bundle.filepath}`);
+                }
+            }
         }
 
         await this.uiHandler.pause();
@@ -999,6 +1348,58 @@ class MenuManager {
      * @param {string} preselectedAddress - Optional address to preselect
      */
     async validatorMenu(preselectedAddress = null) {
+        this.uiHandler.clearScreen();
+        this.uiHandler.displayHeader("VALIDATOR DELEGATION");
+        
+        // Try to initialize RedelegationManager if it doesn't exist
+        if (!this.redelegationManager) {
+            try {
+                console.log("Initializing RedelegationManager...");
+                const RedelegationManager = require('../../bundles/boosts/boostBundler');
+                const provider = this.app && this.app.getProvider ? this.app.getProvider() : null;
+                
+                if (provider) {
+                    this.redelegationManager = new RedelegationManager(provider);
+                    this.needsRedelegationManagerInit = true;
+                } else {
+                    console.log("\n❌ Error: Cannot initialize RedelegationManager. No provider available.");
+                    console.log("Please restart the application and try again.");
+                    await this.uiHandler.pause();
+                    return;
+                }
+            } catch (error) {
+                console.log(`\n❌ Error: Cannot initialize RedelegationManager: ${error.message}`);
+                console.log("Please make sure you have the latest version of the application.");
+                await this.uiHandler.pause();
+                return;
+            }
+        }
+        
+        // Initialize redelegationManager if needed
+        if (this.needsRedelegationManagerInit && this.redelegationManager && this.redelegationManager.initialize) {
+            try {
+                console.log("Initializing RedelegationManager...");
+                await this.redelegationManager.initialize();
+                console.log("RedelegationManager initialized successfully");
+                this.needsRedelegationManagerInit = false;
+            } catch (error) {
+                console.log(`\n❌ Error: RedelegationManager initialization failed: ${error.message}`);
+                console.log("Please restart the application and try again.");
+                await this.uiHandler.pause();
+                return;
+            }
+        }
+        
+        // Check if redelegationManager is still not available
+        if (!this.redelegationManager) {
+            this.uiHandler.clearScreen();
+            this.uiHandler.displayHeader("VALIDATOR DELEGATION");
+            console.log("\n❌ Error: Validator delegation service is not available.");
+            console.log("This feature requires the delegation manager component to be properly initialized.");
+            await this.uiHandler.pause();
+            return;
+        }
+        
         let walletAddress = preselectedAddress;
 
         if (!walletAddress) {
@@ -1048,58 +1449,64 @@ class MenuManager {
             this.uiHandler.clearScreen();
             this.uiHandler.displayHeader("VALIDATOR DELEGATION");
             
-            // Get current preferences
-            const userPrefs = this.redelegationManager.getUserPreferences(walletAddress);
-            
-            // Show current validator preferences if any exist
-            if (userPrefs.validators && userPrefs.validators.length > 0) {
-                console.log(`\nCurrent Delegation Preferences:`);
-                console.log("═════════════════════════════════════════");
+            try {
+                // Get current preferences
+                const userPrefs = this.redelegationManager.getUserPreferences(walletAddress);
                 
-                // Sort validators alphabetically
-                const sortedValidators = [...userPrefs.validators].sort((a, b) => {
-                    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-                });
-                
-                for (const validator of sortedValidators) {
-                    const allocation = userPrefs.allocations ? userPrefs.allocations[validator.pubkey] || 0 : 0;
-                    console.log(`${validator.name} (${validator.pubkey.substring(0, 10)}...): ${allocation}%`);
+                // Show current validator preferences if any exist
+                if (userPrefs && userPrefs.validators && userPrefs.validators.length > 0) {
+                    console.log(`\nCurrent Delegation Preferences:`);
+                    console.log("═════════════════════════════════════════");
+                    
+                    // Sort validators alphabetically
+                    const sortedValidators = [...userPrefs.validators].sort((a, b) => {
+                        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+                    });
+                    
+                    for (const validator of sortedValidators) {
+                        const allocation = userPrefs.allocations ? userPrefs.allocations[validator.pubkey] || 0 : 0;
+                        console.log(`${validator.name} (${validator.pubkey.substring(0, 10)}...): ${allocation}%`);
+                    }
+                    
+                    console.log("═════════════════════════════════════════");
+                } else {
+                    console.log(`\nNo delegation preferences set yet.`);
                 }
                 
-                console.log("═════════════════════════════════════════");
-            } else {
-                console.log(`\nNo delegation preferences set yet.`);
-            }
-            
-            // Show validator menu options
-            console.log("");
-            const validatorOptions = this.uiHandler.createMenuOptions([
-                { key: '1', label: 'Select Validators', value: 'select' },
-                { key: '2', label: 'Set Allocation Percentages', value: 'allocate' },
-                { key: '3', label: 'Update Validator List', value: 'update' }
-            ], true, false);
-            
-            this.uiHandler.displayMenu(validatorOptions);
-            const action = await this.uiHandler.getSelection(validatorOptions);
-            
-            if (action === 'back') {
+                // Show validator menu options
+                console.log("");
+                const validatorOptions = this.uiHandler.createMenuOptions([
+                    { key: '1', label: 'Select Validators', value: 'select' },
+                    { key: '2', label: 'Set Allocation Percentages', value: 'allocate' },
+                    { key: '3', label: 'Update Validator List', value: 'update' }
+                ], true, false);
+                
+                this.uiHandler.displayMenu(validatorOptions);
+                const action = await this.uiHandler.getSelection(validatorOptions);
+                
+                if (action === 'back') {
+                    return;
+                }
+                
+                if (action === 'quit') {
+                    process.exit(0);
+                }
+                
+                switch (action) {
+                    case 'select':
+                        await this.selectValidatorsFlow(walletAddress);
+                        break;
+                    case 'allocate':
+                        await this.setAllocationsFlow(walletAddress);
+                        break;
+                    case 'update':
+                        await this.updateValidatorsFlow();
+                        break;
+                }
+            } catch (error) {
+                console.log(`\n❌ Error working with validator preferences: ${error.message}`);
+                await this.uiHandler.pause();
                 return;
-            }
-            
-            if (action === 'quit') {
-                process.exit(0);
-            }
-            
-            switch (action) {
-                case 'select':
-                    await this.selectValidatorsFlow(walletAddress);
-                    break;
-                case 'allocate':
-                    await this.setAllocationsFlow(walletAddress);
-                    break;
-                case 'update':
-                    await this.updateValidatorsFlow();
-                    break;
             }
         }
     }
@@ -1452,20 +1859,71 @@ class MenuManager {
         this.uiHandler.clearScreen();
         this.uiHandler.displayHeader("UPDATE VALIDATORS");
         
-        console.log(`\nUpdating validator list...`);
+        // Check if RewardChecker is available
+        if (!this.rewardChecker) {
+            console.log("\n❌ Error: RewardChecker service is not available.");
+            console.log("This feature requires the RewardChecker component to be properly initialized.");
+            await this.uiHandler.pause();
+            return;
+        }
         
-        this.uiHandler.startProgress(100, "Updating validator list...");
+        // Check if RedelegationManager is available
+        if (!this.redelegationManager) {
+            console.log("\n❌ Error: RedelegationManager service is not available.");
+            console.log("This feature requires the RedelegationManager component to be properly initialized.");
+            await this.uiHandler.pause();
+            return;
+        }
         
-        // Use the RedelegationManager's updateValidatorsFromNetwork method
-        const result = await this.redelegationManager.updateValidatorsFromNetwork();
-        this.uiHandler.stopProgress();
+        console.log(`\nUpdating validator list from GitHub...`);
+        this.uiHandler.startProgress(100, "Fetching validator data from GitHub...");
         
-        if (result.success) {
-            console.log(`\nValidator list processed successfully. Found ${result.count} validators.`);
-        } else {
-            console.log(`\nFailed to process validators: ${result.message}`);
-            console.log(`\nTo update validators from GitHub, use the main menu's "Check Rewards" option,`);
-            console.log(`then select "Update Metadata from GitHub".`);
+        try {
+            // First step: Use RewardChecker to update validators from GitHub
+            const githubSuccess = await this.rewardChecker.updateValidators();
+            
+            if (!githubSuccess) {
+                this.uiHandler.stopProgress();
+                console.log("\n❌ Error: Failed to update validators from GitHub.");
+                console.log("Please check your internet connection and try again.");
+                await this.uiHandler.pause();
+                return;
+            }
+            
+            // Second step: Update validators in RedelegationManager
+            this.uiHandler.updateProgress(50, "Loading validators into RedelegationManager...");
+            const result = await this.redelegationManager.updateValidatorsFromNetwork();
+            
+            this.uiHandler.stopProgress();
+            
+            if (result && result.success) {
+                console.log(`\n✅ Validator list updated successfully. Found ${result.count} validators.`);
+                
+                // Show a preview of the validators
+                const validators = this.redelegationManager.getValidators();
+                if (validators && validators.length > 0) {
+                    console.log("\nHere are some of the validators available:");
+                    console.log("─────────────────────────────────────────────────");
+                    
+                    // Show up to 5 validators
+                    const previewCount = Math.min(5, validators.length);
+                    for (let i = 0; i < previewCount; i++) {
+                        const validator = validators[i];
+                        console.log(`${i+1}. ${validator.name} (${validator.pubkey ? validator.pubkey.substring(0, 10) + '...' : 'No pubkey'})`);
+                    }
+                    
+                    if (validators.length > previewCount) {
+                        console.log(`... and ${validators.length - previewCount} more validators`);
+                    }
+                }
+            } else {
+                console.log(`\n❌ Error: Failed to process validators: ${result ? result.message : 'Unknown error'}`);
+                console.log("Please try again or check the application logs for more information.");
+            }
+        } catch (error) {
+            this.uiHandler.stopProgress();
+            console.log(`\n❌ Error updating validators: ${error.message}`);
+            console.log("Please try again later or check your internet connection.");
         }
         
         await this.uiHandler.pause();
@@ -1479,19 +1937,45 @@ class MenuManager {
         this.uiHandler.displayHeader("UPDATE TOKEN LIST");
         
         console.log("\nUpdating token list from OogaBooga API...");
+        
+        // Check if OogaBooga API key is configured
+        let oogaboogaKey = null;
+        
+        // Try from apiKeyRepository first
+        if (this.app && this.app.apiKeyRepository) {
+            oogaboogaKey = this.app.apiKeyRepository.getApiKey('oogabooga');
+        }
+        
+        // If not found, try from our fallback mechanism
+        if (!oogaboogaKey) {
+            oogaboogaKey = this.metadataFetcher.getOrSetApiKey();
+        }
+        
+        if (!oogaboogaKey) {
+            console.log("\n❌ OogaBooga API key is not configured.");
+            console.log("\nPlease configure your API key in the 'Configure API Keys' menu first.");
+            await this.uiHandler.pause();
+            return;
+        }
+        
         this.uiHandler.startProgress(100, "Fetching token data...");
         
-        // Directly use the tokenService to update token list
-        const success = await this.app.tokenService.updateTokenList();
+        // Use our new metadata fetcher
+        const result = await this.metadataFetcher.fetchOogaboogaTokens(oogaboogaKey);
         
         this.uiHandler.stopProgress();
         
-        if (success) {
-            console.log("\n✓ Token list updated successfully!");
+        if (result.success) {
+            console.log(`\n✓ Token list updated successfully! (${result.count} tokens)`);
         } else {
-            console.log("\n✗ Failed to update token list.");
-            console.log("\nThis could be due to API issues. Please verify your API key in the .env file:");
-            console.log(`  OOGABOOGA_API_KEY=${process.env.OOGABOOGA_API_KEY || 'Not set'}`);
+            console.log(`\n✗ Failed to update token list: ${result.message}`);
+            console.log("\nThis could be due to API issues.");
+            
+            if (!oogaboogaKey) {
+                console.log("Please set your API key using the 'Configure API Keys' menu option.");
+            } else {
+                console.log("Please verify your API key is correct in the 'Configure API Keys' menu.");
+            }
         }
         
         await this.uiHandler.pause();
@@ -1503,6 +1987,19 @@ class MenuManager {
     async tokenBalancesMenu() {
         this.uiHandler.clearScreen();
         this.uiHandler.displayHeader("TOKEN BALANCES & SWAP");
+
+        // Initialize tokenSwapper on first access if not already available
+        if (!this.tokenSwapper && this.app && this.app.bundleCreator && this.app.bundleCreator.getSwapBundler) {
+            this.tokenSwapper = this.app.bundleCreator.getSwapBundler();
+        }
+        
+        // Check if tokenSwapper is available
+        if (!this.tokenSwapper) {
+            console.log("\n❌ Error: Token service is not available.");
+            console.log("Please restart the application and try again.");
+            await this.uiHandler.pause();
+            return;
+        }
 
         // Get wallets
         const wallets = this.walletService.getWallets();
@@ -1541,7 +2038,14 @@ class MenuManager {
 
         // Process specific wallet
         const { name, address } = choice;
-        await this.tokenSwapper.displayTokenBalances(address, name);
+        
+        try {
+            await this.tokenSwapper.displayTokenBalances(address, name);
+        } catch (error) {
+            console.log(`\n❌ Error displaying token balances: ${error.message}`);
+            console.log("This could be due to a service initialization issue.");
+            await this.uiHandler.pause();
+        }
     }
 
     /**
@@ -1576,30 +2080,109 @@ class MenuManager {
                 
                 console.log("\nUpdating all metadata (vaults, validators, tokens)...");
                 
-                this.uiHandler.startProgress(100, "Updating metadata from GitHub...");
                 // First update validators and vaults from GitHub
-                await this.rewardChecker.updateAllMetadata();
+                this.uiHandler.startProgress(100, "Updating metadata from GitHub...");
+                const githubResult = await this.metadataFetcher.fetchAllGithubMetadata(true);
                 this.uiHandler.stopProgress();
                 
-                console.log("\nNow updating token list from OogaBooga API...");
-                this.uiHandler.startProgress(100, "Fetching token data...");
-                // Then update tokens from OogaBooga API
-                const tokenSuccess = await this.tokenService.updateTokenList();
-                this.uiHandler.stopProgress();
-                
-                if (tokenSuccess) {
-                    console.log("\n✓ All metadata updated successfully!");
+                if (githubResult.success) {
+                    console.log("\n✓ Github metadata updated successfully!");
+                    console.log(`  - Validators: ${githubResult.validators.count} records`);
+                    console.log(`  - Vaults: ${githubResult.vaults.count} records`);
+                    console.log(`  - Token definitions: ${githubResult.tokens.count} records`);
                 } else {
-                    console.log("\n✓ Vaults and validators updated successfully!");
-                    console.log("\n✗ Token list update failed. Please check your API key.");
+                    console.log("\n❌ Github metadata update failed:");
+                    console.log(`  - ${githubResult.message}`);
+                }
+                
+                // Get OogaBooga API key
+                console.log("\nNow updating token list from OogaBooga API...");
+                // Try to get API key from multiple sources
+                let oogaboogaKey = null;
+                
+                // Try from apiKeyRepository first
+                if (this.app && this.app.apiKeyRepository) {
+                    oogaboogaKey = this.app.apiKeyRepository.getApiKey('oogabooga');
+                }
+                
+                // If not found, try from our fallback mechanism
+                if (!oogaboogaKey) {
+                    oogaboogaKey = this.metadataFetcher.getOrSetApiKey();
+                }
+                
+                if (!oogaboogaKey) {
+                    console.log("\n❌ OogaBooga API key is not configured.");
+                    console.log("\nSkipping token list update. Please configure your API key in the 'Configure API Keys' menu.");
+                    await this.uiHandler.pause();
+                    return;
+                }
+                
+                // Update tokens from OogaBooga API
+                this.uiHandler.startProgress(100, "Fetching token data from OogaBooga API...");
+                const oogaboogaResult = await this.metadataFetcher.fetchOogaboogaTokens(oogaboogaKey);
+                this.uiHandler.stopProgress();
+                
+                if (oogaboogaResult.success) {
+                    console.log(`\n✓ OogaBooga token data updated successfully! (${oogaboogaResult.count} tokens)`);
+                } else {
+                    console.log("\n❌ OogaBooga token data update failed:");
+                    console.log(`  - ${oogaboogaResult.message}`);
+                    
+                    if (!oogaboogaKey) {
+                        console.log("  - Please set your API key using the 'Configure API Keys' menu option.");
+                    } else {
+                        console.log("  - Please verify your API key is correct in the 'Configure API Keys' menu.");
+                    }
                 }
                 
                 await this.uiHandler.pause();
                 break;
                 
             case 'tokens':
-                // Just update tokens using the existing method
-                await this.updateTokenListMenu();
+                // Just update tokens using the OogaBooga API
+                this.uiHandler.clearScreen();
+                this.uiHandler.displayHeader("UPDATE TOKEN DATA FROM OOGABOOGA");
+                
+                console.log("\nUpdating token list from OogaBooga API...");
+                
+                // Get OogaBooga API key
+                let apiKey = null;
+                
+                // Try from apiKeyRepository first
+                if (this.app && this.app.apiKeyRepository) {
+                    apiKey = this.app.apiKeyRepository.getApiKey('oogabooga');
+                }
+                
+                // If not found, try from our fallback mechanism
+                if (!apiKey) {
+                    apiKey = this.metadataFetcher.getOrSetApiKey();
+                }
+                
+                if (!apiKey) {
+                    console.log("\n❌ OogaBooga API key is not configured.");
+                    console.log("\nPlease configure your API key in the 'Configure API Keys' menu first.");
+                    await this.uiHandler.pause();
+                    return;
+                }
+                
+                // Update tokens from OogaBooga API
+                this.uiHandler.startProgress(100, "Fetching token data...");
+                const tokenResult = await this.metadataFetcher.fetchOogaboogaTokens(apiKey);
+                this.uiHandler.stopProgress();
+                
+                if (tokenResult.success) {
+                    console.log(`\n✓ Token data updated successfully! (${tokenResult.count} tokens)`);
+                } else {
+                    console.log(`\n❌ Token data update failed: ${tokenResult.message}`);
+                    
+                    if (!apiKey) {
+                        console.log("Please set your API key using the 'Configure API Keys' menu option.");
+                    } else {
+                        console.log("Please verify your API key is correct in the 'Configure API Keys' menu.");
+                    }
+                }
+                
+                await this.uiHandler.pause();
                 break;
                 
             case 'vaults_validators':
@@ -1610,15 +2193,193 @@ class MenuManager {
                 console.log("\nUpdating vaults, validators, and tokens from GitHub...");
                 
                 this.uiHandler.startProgress(100, "Fetching data from GitHub...");
-                await this.rewardChecker.updateAllMetadata();
+                const result = await this.metadataFetcher.fetchAllGithubMetadata(true);
                 this.uiHandler.stopProgress();
                 
-                console.log("\n✓ Vaults, validators, and GitHub tokens updated successfully!");
+                if (result.success) {
+                    console.log("\n✓ GitHub metadata updated successfully!");
+                    console.log(`  - Downloaded ${result.validators.count} validators`);
+                    console.log(`  - Downloaded ${result.vaults.count} vaults`);
+                    console.log(`  - Downloaded ${result.tokens.count} token definitions`);
+                } else {
+                    console.log(`\n❌ GitHub metadata update failed: ${result.message}`);
+                }
                 
                 await this.uiHandler.pause();
                 break;
         }
     }
+    
+    /**
+     * API Keys configuration menu
+     */
+    async apiKeysMenu() {
+        while (true) {
+            this.uiHandler.clearScreen();
+            this.uiHandler.displayHeader("API KEYS CONFIGURATION");
+            
+            // Get current API keys
+            let oogaboogaKey = null;
+            
+            // Try from apiKeyRepository first
+            if (this.app && this.app.apiKeyRepository) {
+                oogaboogaKey = this.app.apiKeyRepository.getApiKey('oogabooga');
+            }
+            
+            // If not found, try from our fallback mechanism
+            if (!oogaboogaKey) {
+                oogaboogaKey = this.metadataFetcher.getOrSetApiKey();
+            }
+            
+            // Display current API keys
+            console.log("\nCurrent API Keys:");
+            console.log("═════════════════════════════════════════════════════════");
+            
+            // OogaBooga API key
+            console.log(`OogaBooga API: ${oogaboogaKey ? '✅ Configured' : '❌ Not configured'}`);
+            
+            console.log("═════════════════════════════════════════════════════════");
+            
+            const options = this.uiHandler.createMenuOptions([
+                { key: '1', label: 'Set OogaBooga API Key', value: 'set_oogabooga' },
+                { key: '2', label: 'Remove OogaBooga API Key', value: 'remove_oogabooga' },
+                // Add more API key options here as needed
+            ], true, false);
+            
+            this.uiHandler.displayMenu(options);
+            const choice = await this.uiHandler.getSelection(options);
+            
+            if (choice === 'back') {
+                return;
+            }
+            
+            if (choice === 'quit') {
+                process.exit(0);
+            }
+            
+            switch (choice) {
+                case 'set_oogabooga':
+                    await this.setOogaBoogaApiKeyFlow();
+                    break;
+                case 'remove_oogabooga':
+                    await this.removeOogaBoogaApiKeyFlow();
+                    break;
+            }
+        }
+    }
+    
+    /**
+     * Flow for setting the OogaBooga API key
+     */
+    async setOogaBoogaApiKeyFlow() {
+        this.uiHandler.clearScreen();
+        this.uiHandler.displayHeader("SET OOGABOOGA API KEY");
+        
+        // Information about the API key
+        console.log("\nℹ️  The OogaBooga API key is required for token price lookup and swap functionality.");
+        console.log("Learn more at https://docs.oogabooga.io/api");
+        
+        // Ask for API key
+        const apiKey = await this.uiHandler.getUserInput(
+            "\nEnter OogaBooga API key:",
+            input => input.trim().length > 0,
+            "API key cannot be empty"
+        );
+        
+        // Save the API key
+        let success = false;
+        
+        // Try using the apiKeyManager first
+        if (this.app && this.app.apiKeyRepository) {
+            success = await this.app.apiKeyRepository.setApiKey('oogabooga', apiKey);
+        }
+        
+        // If that fails, use our fallback mechanism
+        if (!success) {
+            console.log("\nℹ️ API key manager not available, using local storage instead.");
+            this.metadataFetcher.getOrSetApiKey(apiKey);
+            success = true;
+        }
+        
+        if (success) {
+            console.log("\n✅ OogaBooga API key saved successfully!");
+            
+            // Test the key by trying to fetch token metadata
+            console.log("\nTesting API key...");
+            try {
+                const result = await this.metadataFetcher.fetchOogaboogaTokens(apiKey);
+                if (result.success) {
+                    console.log(`\n✅ API key is working! Successfully fetched ${result.count} tokens.`);
+                } else {
+                    console.log(`\n⚠️ Could not verify API key: ${result.message}`);
+                    console.log("The key has been saved, but may not be valid or may not have the correct permissions.");
+                }
+            } catch (error) {
+                console.log(`\n⚠️ Could not verify API key: ${error.message}`);
+                console.log("The key has been saved, but may not be valid or may not have the correct permissions.");
+            }
+        } else {
+            console.log("\n❌ Failed to save API key.");
+        }
+        
+        await this.uiHandler.pause();
+    }
+    
+    /**
+     * Flow for removing the OogaBooga API key
+     */
+    async removeOogaBoogaApiKeyFlow() {
+        this.uiHandler.clearScreen();
+        this.uiHandler.displayHeader("REMOVE OOGABOOGA API KEY");
+        
+        // Check if there's an API key to remove (from any source)
+        let hasApiKey = false;
+        
+        // Check if we have a key in the repository
+        if (this.app && this.app.apiKeyRepository) {
+            hasApiKey = !!this.app.apiKeyRepository.getApiKey('oogabooga');
+        }
+        
+        // Check if we have a key in our fallback
+        if (!hasApiKey) {
+            hasApiKey = !!this.metadataFetcher.getOrSetApiKey();
+        }
+        
+        if (!hasApiKey) {
+            console.log("\nNo OogaBooga API key is currently configured.");
+            await this.uiHandler.pause();
+            return;
+        }
+        
+        // Confirm removal
+        const confirmRemoval = await this.uiHandler.confirm(
+            "\nAre you sure you want to remove the OogaBooga API key? This will disable token price lookup and swap functionality."
+        );
+        
+        if (!confirmRemoval) {
+            return;
+        }
+        
+        // Remove the API key
+        let success = false;
+        
+        // Try to remove from the repository first
+        if (this.app && this.app.apiKeyRepository) {
+            success = await this.app.apiKeyRepository.removeApiKey('oogabooga');
+        }
+        
+        // Also clear our fallback
+        this.metadataFetcher.getOrSetApiKey(''); // Set to empty string to clear
+        success = true;
+        
+        if (success) {
+            console.log("\n✅ OogaBooga API key removed successfully.");
+        } else {
+            console.log("\n❌ Failed to remove API key.");
+        }
+        
+        await this.uiHandler.pause();
+    }
 }
 
-module.exports = MenuManager;
+module.exports = MainMenu;

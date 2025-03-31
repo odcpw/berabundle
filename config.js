@@ -7,7 +7,7 @@ const networks = {
         name: 'Berachain',
         chainId: '0x1385e', // 80094 in decimal
         rpcUrl: process.env.RPC_URL || 'https://rpc.berachain.com',
-        blockExplorer: 'https://explorer.berachain.com',
+        blockExplorer: 'https://berascan.com',
         factoryAddress: '0x94Ad6Ac84f6C6FbA8b8CCbD71d9f4f101def52a8',
         bgtStakerAddress: '0x44F07Ce5AfeCbCC406e6beFD40cc2998eEb8c7C6',
         honeyTokenAddress: '0x7EeCA4205fF31f947EdBd49195a7A88E6A91161B', // Added HONEY token address
@@ -17,11 +17,26 @@ const networks = {
         // Safe configuration
         safe: {
             // Safe Transaction Service URL for Berachain
-            serviceUrl: process.env.SAFE_SERVICE_URL || 'https://safe-transaction-berachain.safe.global/api/v1', 
+            // For API Kit: The SDK incorrectly adds '/v1/' instead of '/api/v1/'
+            // So for API Kit compatibility, URL should have '/api/' but not '/v1/'
+            serviceUrl: process.env.SAFE_SERVICE_URL || 'https://safe-transaction-berachain.safe.global/api', 
+            // Full API URL with /api/v1 for direct axios calls
+            serviceApiUrl: process.env.SAFE_SERVICE_API_URL || 'https://safe-transaction-berachain.safe.global/api/v1',
             appUrl: 'https://app.safe.global', // Safe web app URL
             
-            // Multisend contract address for batching transactions
-            multiSendAddress: '0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526' // Standard Safe MultiSend contract
+            // Default Safe address for this project (if configured)
+            // This will be checked if the owner lookup fails, to see if the user is an owner
+            defaultSafeAddress: process.env.DEFAULT_SAFE_ADDRESS || '',
+            
+            // MultiSend contract addresses
+            multiSendAddress: '0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526', // Standard Safe MultiSend contract (uses delegatecall)
+            multiSendCallsOnlyAddress: '0x40A2aCCbd92BCA938b02010E17A5b8929b49130D' // Safe MultiSendCallsOnly contract (uses only call)
+        },
+        
+        // Multicall configuration
+        multicall: {
+            // Standard Multicall3 contract address on Berachain
+            address: '0xcA11bde05977b3631167028862bE2a173976CA11'
         }
     }
 };
@@ -50,6 +65,7 @@ const paths = {
     walletsFile: path.join(__dirname, 'userprefs', 'wallets.json'),
     boostAllocationFile: path.join(__dirname, 'userprefs', 'boost_allocation.json'),
     encryptedKeysFile: path.join(__dirname, 'userprefs', 'encrypted_keys.json'),
+    apiKeysFile: path.join(__dirname, 'userprefs', 'api_keys.json'),
 };
 
 // Gas settings
@@ -107,6 +123,16 @@ const abis = {
     erc20: [
         "function symbol() view returns (string)",
         "function decimals() view returns (uint8)"
+    ],
+    
+    // Multicall3 ABI - standard ABI supported on most EVM chains
+    multicall3: [
+        "function aggregate3(tuple(address target, bool allowFailure, bytes callData)[] calls) returns (tuple(bool success, bytes returnData)[])"
+    ],
+    
+    // Safe MultiSend contract ABI
+    multiSend: [
+        "function multiSend(bytes memory transactions) public"
     ]
 };
 

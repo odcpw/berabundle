@@ -69,6 +69,9 @@ class BeraBundle {
             
             // Initialize repositories
             await this.walletRepository.initialize();
+            // Update wallet repository provider AFTER provider is initialized
+            this.walletRepository.provider = provider;
+            
             await this.apiKeyRepository.initialize();
             await this.preferencesRepository.initialize();
             await this.bundleRepository.initialize();
@@ -105,7 +108,18 @@ class BeraBundle {
             this.transactionService.claimBundler = this.bundleCreator.getClaimBundler();
             
             // Set backward compatibility properties
-            this.rewardChecker = this.bundleCreator.getClaimBundler().rewardChecker;
+            try {
+                // Get RewardChecker from the ClaimBundler
+                this.rewardChecker = this.bundleCreator.getClaimBundler().rewardChecker;
+                console.log("Successfully initialized rewardChecker from ClaimBundler");
+            } catch (error) {
+                // If that fails, create a new RewardChecker directly
+                const RewardChecker = require('./bundles/claims/rewardChecker');
+                this.rewardChecker = new RewardChecker(provider);
+                console.log("Created new RewardChecker instance directly");
+            }
+            
+            // Set redelegationManager from BoostBundler
             this.redelegationManager = this.bundleCreator.getBoostBundler();
             
             // Get SwapBundler and make sure it has a reference to the app

@@ -11,8 +11,8 @@
 
 const { ethers } = require('ethers');
 const axios = require('axios');
-const config = require('../config');
-const { ErrorHandler } = require('../utils/errorHandler');
+const config = require('../../config');
+const { ErrorHandler } = require('../../utils/errorHandler');
 const fs = require('fs').promises;
 const path = require('path');
 require('dotenv').config();
@@ -39,10 +39,12 @@ class TokenService {
      * Creates a new TokenService instance
      * 
      * @param {ethers.providers.Provider} provider - Ethereum provider for blockchain interactions
+     * @param {Object} app - Optional main app instance for access to other services
      */
-    constructor(provider) {
+    constructor(provider, app = null) {
         this.provider = provider;
-        this.apiKey = process.env.OOGABOOGA_API_KEY;
+        this.app = app; // Store app reference for access to transactionService
+        this.apiKey = process.env.OOGABOOGA_API_KEY; // Fallback to environment variable
         this.apiBaseUrl = 'https://mainnet.api.oogabooga.io';
         
         // Cache settings
@@ -63,9 +65,21 @@ class TokenService {
      * @throws {Error} If API key is missing or API call fails
      */
     async apiCallWithAuth(endpoint, params = {}) {
-        const cleanApiKey = this.apiKey ? this.apiKey.trim() : null;
+        // Try to get API key from ApiKeyManager first
+        let apiKey = null;
+        
+        if (this.app && this.app.apiKeyManager) {
+            apiKey = this.app.apiKeyManager.getApiKey('oogabooga');
+        }
+        
+        // Fall back to environment variable if needed
+        if (!apiKey) {
+            apiKey = this.apiKey;
+        }
+        
+        const cleanApiKey = apiKey ? apiKey.trim() : null;
         if (!cleanApiKey) {
-            throw new Error("API key not found in environment");
+            throw new Error("OogaBooga API key not found in storage or environment. Please set it up in the API Key Settings.");
         }
         
         const url = endpoint.startsWith('http') ? endpoint : `${this.apiBaseUrl}${endpoint}`;
@@ -179,7 +193,7 @@ class TokenService {
         try {
             // Check if we need to update the token list
             let needsUpdate = true;
-            const FSHelpers = require('../utils/fsHelpers');
+            const FSHelpers = require('../../utils/fsHelpers');
             
             try {
                 // Check if tokens_updated.json exists and is recent
@@ -607,7 +621,9 @@ class TokenService {
             
             switch (format) {
                 case OutputFormat.EOA:
-                    // For EOA, format as regular Ethereum transactions
+                    // For EOA, format as EIP-1559 transactions
+                    // Don't include chainId in the transactions to avoid mismatches
+                    // Also format for multicall compatibility (unified format)
                     const formattedTxs = transactions.map(tx => ({
                         to: tx.to,
                         from: fromAddress,
@@ -616,8 +632,8 @@ class TokenService {
                         gasLimit: tx.gasLimit || "0x55555",
                         maxFeePerGas: config.gas.maxFeePerGas,
                         maxPriorityFeePerGas: config.gas.maxPriorityFeePerGas,
-                        type: "0x2", // EIP-1559 transaction
-                        chainId
+                        type: "0x2" // EIP-1559 transaction
+                        // No chainId - ethers will add it automatically at send time
                     }));
                     
                     return {
@@ -742,23 +758,58 @@ class TokenService {
     }
     
     /**
-     * Saves a transaction bundle to a JSON file
+     * Generates instructions for directly opening transactions in the Safe Transaction Builder
+     * 
+     * Instead of generating a potentially very long URL that could exceed browser limits,
+     * this method provides clear instructions on how to use the Safe UI's batch import feature.
+     * 
+     * @param {Object} bundle - Formatted transaction bundle in SAFE_UI format
+     * @param {string} safeAddress - Safe wallet address
+     * @returns {Object} Object containing instruction text and URLs
+     */
+    generateTransactionBuilderInstructions(bundle, safeAddress) {
+        try {
+            const chainPrefix = 'ber'; // Chain prefix for Berachain
+            const baseUrl = config.networks.berachain.safe.appUrl;
+            
+            // Create a proper Safe URL
+            const safeUrl = `${baseUrl}/home?safe=${chainPrefix}:${safeAddress}`;
+            
+            return {
+                safeUrl: safeUrl,
+                instructions: [
+                    `1. Go to ${safeUrl}`,
+                    `2. Click "New Transaction" > "Transaction Builder"`,
+                    `3. Click "Load" in the top right corner`,
+                    `4. Select the saved file to import all transactions at once`
+                ]
+            };
+        } catch (error) {
+            ErrorHandler.handle(error, 'TokenService.generateTransactionBuilderInstructions');
+            return null;
+        }
+    }
+
+    /**
+     * Saves a transaction bundle to a JSON file and generates Safe access instructions
      * 
      * Creates a timestamped JSON file in the output directory containing
-     * the formatted transaction bundle. The filename includes the wallet name,
-     * timestamp, and format type for easy identification.
+     * the formatted transaction bundle. For Safe transactions, also generates
+     * instructions on how to import the file into the Safe Transaction Builder.
      * 
      * @param {Object} bundle - Formatted transaction bundle
      * @param {string} walletName - Human-readable wallet name
      * @param {string} format - Output format from OutputFormat enum
+     * @param {string} safeAddress - Safe address (for Safe UI instructions)
      * @returns {Promise<Object>} Result object containing:
      *   - success: Boolean indicating success
      *   - filepath: Path to the saved file
      *   - format: Format used for the bundle
+     *   - safeInstructions: Object with Safe access instructions (for SAFE_UI format only)
      *   - summary: Object with transaction counts and details
      *   - error: Error message if save failed
      */
-    async saveSwapBundle(bundle, walletName, format) {
+    async saveSwapBundle(bundle, walletName, format, safeAddress) {
         try {
             // Ensure output directory exists
             await fs.mkdir(config.paths.outputDir, { recursive: true });
@@ -773,7 +824,8 @@ class TokenService {
             // Write bundle to file
             await fs.writeFile(bundlePath, JSON.stringify(bundle, null, 2));
             
-            return {
+            // Generate result object
+            const result = {
                 success: true,
                 filepath: bundlePath,
                 format,
@@ -784,6 +836,16 @@ class TokenService {
                     totalTransactions: bundle.totalTransactions || bundle.transactions.length || 0
                 }
             };
+            
+            // Generate Safe instructions for Safe transactions
+            if (format === OutputFormat.SAFE_UI && safeAddress) {
+                const safeInstructions = this.generateTransactionBuilderInstructions(bundle, safeAddress);
+                if (safeInstructions) {
+                    result.safeInstructions = safeInstructions;
+                }
+            }
+            
+            return result;
         } catch (error) {
             ErrorHandler.handle(error, 'TokenService.saveSwapBundle');
             return {

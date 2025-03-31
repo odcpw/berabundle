@@ -116,7 +116,8 @@ class UIHandler {
                 type: 'list',
                 name: 'choice',
                 message: prompt,
-                choices: inquirerChoices
+                choices: inquirerChoices,
+                pageSize: 12  // Show more menu items at once
             }
         ]);
         

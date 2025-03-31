@@ -1,20 +1,18 @@
 /**
- * safeAdapter.js - Comprehensive adapter for Safe Transaction Service
+ * safeAdapter.js - Adapter for Safe Transaction Service
  * 
- * This module provides a complete adapter for interacting with the Safe Transaction Service API,
- * Protocol Kit, and related Safe components. It handles URL formatting, error handling, and 
- * provides a consistent interface for Safe operations.
+ * This module provides an adapter for interacting with the Safe Transaction Service API
+ * for proposing transactions to a Safe multisig wallet. It uses the working direct API
+ * implementation from test-safe-proposal.js.
  */
 
 const { ethers } = require('ethers');
-const SafeApiKit = require('@safe-global/api-kit').default;
-const Safe = require('@safe-global/protocol-kit').default;
-const { OperationType } = require('@safe-global/types-kit');
 const axios = require('axios');
 const config = require('../../config');
+const SecureStorage = require('../../storage/engines/secureStorage');
 
 /**
- * Comprehensive adapter for Safe Transaction Service interactions
+ * Safe adapter for transaction service interactions
  */
 class SafeAdapter {
     /**
@@ -26,70 +24,23 @@ class SafeAdapter {
         this.chainId = parseInt(config.networks.berachain.chainId, 16); // Convert hex chainId to number
         
         // Set up the API URLs with proper formatting
-        this.setupApiUrls();
-        
-        // Create axios instance for direct API calls
-        this.api = axios.create({
-            baseURL: this.serviceApiUrl,
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-        });
-        
-        // Create Safe API Kit instance
-        this.apiKit = this.createSafeApiKit();
-        
-        console.log(`Safe Adapter initialized with Berachain - API URL: ${this.serviceApiUrl}`);
-    }
-    
-    /**
-     * Set up API URLs with proper formatting
-     */
-    setupApiUrls() {
-        // For direct axios calls, use serviceApiUrl with /api/v1
-        this.serviceApiUrl = config.networks.berachain.safe.serviceApiUrl;
-        
-        // Ensure we have a properly formatted URL with /api/v1
-        if (!this.serviceApiUrl) {
-            // Fallback to serviceUrl and append /api/v1 if needed
-            this.serviceApiUrl = config.networks.berachain.safe.serviceUrl;
-            if (!this.serviceApiUrl.includes('/api/v1')) {
-                this.serviceApiUrl = `${this.serviceApiUrl}/api/v1`;
-            }
-        }
-        
-        // For API Kit, use serviceUrl with /api but not /v1
         this.serviceUrl = config.networks.berachain.safe.serviceUrl;
-        
-        // For Safe web app URL
         this.appUrl = config.networks.berachain.safe.appUrl;
-    }
-    
-    /**
-     * Create a properly configured Safe API Kit instance
-     * @returns {SafeApiKit} Initialized Safe API Kit
-     */
-    createSafeApiKit() {
-        // Convert hex chainId to decimal BigInt
-        const chainId = BigInt(this.chainId);
         
-        // Initialize with proper URL format (ending with /api)
-        return new SafeApiKit({
-            chainId: chainId,
-            txServiceUrl: this.serviceUrl
-        });
+        console.log(`Safe Adapter initialized with chain ID: ${this.chainId}`);
+        console.log(`Safe Transaction Service URL: ${this.serviceUrl}`);
     }
     
     /**
      * Get Safe transaction URL for the web app
      * @param {string} safeAddress - Safe address
-     * @param {string} safeTxHash - Safe transaction hash
+     * @param {string} safeTxHash - Safe transaction hash (optional)
      * @returns {string} Safe transaction URL
      */
     getSafeTransactionUrl(safeAddress, safeTxHash) {
         const normalizedAddress = ethers.utils.getAddress(safeAddress).toLowerCase();
-        // Format according to Safe URL structure
+        
+        // Return URL to Safe web app
         return `${this.appUrl}/transactions/queue?safe=ber:${normalizedAddress}`;
     }
     
@@ -100,22 +51,22 @@ class SafeAdapter {
      */
     async getNextNonce(safeAddress) {
         try {
-            const normalizedAddress = ethers.utils.getAddress(safeAddress);
+            // API URL for Safe info
+            const apiUrl = `${this.serviceUrl}/v1/safes/${safeAddress}/`;
             
-            // Make a direct API call to get Safe info
-            const response = await this.api.get(`/safes/${normalizedAddress}/`);
+            // Get Safe info from API
+            const response = await axios.get(apiUrl);
             
-            if (response.status === 200 && response.data && response.data.nonce !== undefined) {
-                const nonce = parseInt(response.data.nonce);
+            if (response.data && response.data.nonce !== undefined) {
                 return {
                     success: true,
-                    nonce: nonce,
-                    message: `Nonce retrieved: ${nonce}`
+                    nonce: response.data.nonce,
+                    message: `Nonce retrieved: ${response.data.nonce}`
                 };
             } else {
                 return {
                     success: false,
-                    message: `Unexpected response format from Safe service`
+                    message: "Unexpected response format from Safe service"
                 };
             }
         } catch (error) {
@@ -133,83 +84,25 @@ class SafeAdapter {
      */
     async getSafesByOwner(ownerAddress) {
         try {
-            const normalizedAddress = ethers.utils.getAddress(ownerAddress);
+            // API URL for owner Safes
+            const apiUrl = `${this.serviceUrl}/v1/owners/${ownerAddress}/safes/`;
             
-            // First, try to find any existing Safes for this owner
-            let ownerSafes = [];
+            // Get Safes for owner from API
+            const response = await axios.get(apiUrl);
             
-            try {
-                // Try with direct API call first (most reliable)
-                const response = await this.api.get(`/owners/${normalizedAddress}/safes/`);
-                
-                if (response.status === 200 && response.data && response.data.safes) {
-                    if (response.data.safes.length > 0) {
-                        ownerSafes = response.data.safes;
-                    }
-                }
-            } catch (apiError) {
-                // The 404 error is expected for new owners (not found in the service)
-                if (apiError.response && apiError.response.status === 404) {
-                    // This is normal for new owners - continue with fallbacks
-                } else {
-                    // For other errors, try the API Kit as fallback
-                    try {
-                        const safesResponse = await this.apiKit.getSafesByOwner(normalizedAddress);
-                        if (safesResponse && safesResponse.safes) {
-                            ownerSafes = safesResponse.safes;
-                        }
-                    } catch (kitError) {
-                        // Both API approaches failed, continue with fallbacks
-                    }
-                }
-            }
-            
-            // If we found Safes by direct lookup, return them
-            if (ownerSafes.length > 0) {
+            if (response.data && response.data.safes) {
                 return {
                     success: true,
-                    safes: ownerSafes,
-                    message: `Found ${ownerSafes.length} Safe(s) for this owner`
+                    safes: response.data.safes,
+                    message: `Found ${response.data.safes.length} Safe(s) for this owner`
+                };
+            } else {
+                return {
+                    success: true,
+                    safes: [],
+                    message: "No Safes found for this owner"
                 };
             }
-            
-            // Check if a specific Safe address is configured in config
-            if (config.networks.berachain.safe.defaultSafeAddress) {
-                try {
-                    const safeAddress = config.networks.berachain.safe.defaultSafeAddress;
-                    
-                    // Try to get Safe details directly
-                    const safeInfoResponse = await this.api.get(`/safes/${safeAddress}/`);
-                    
-                    if (safeInfoResponse.status === 200 && 
-                        safeInfoResponse.data && 
-                        safeInfoResponse.data.owners) {
-                        
-                        const safeInfo = safeInfoResponse.data;
-                        
-                        const isOwner = safeInfo.owners.some(
-                            owner => owner.toLowerCase() === normalizedAddress.toLowerCase()
-                        );
-                        
-                        if (isOwner) {
-                            return { 
-                                success: true, 
-                                safes: [safeAddress],
-                                message: "Using configured Safe address where you are an owner"
-                            };
-                        }
-                    }
-                } catch (checkError) {
-                    // Failed to check the default Safe - continue with empty result
-                }
-            }
-            
-            // Return empty list with success status - will prompt for manual entry
-            return { 
-                success: true, 
-                safes: [],
-                message: "No Safes found for this owner - please enter Safe address manually" 
-            };
         } catch (error) {
             return {
                 success: false,
@@ -220,88 +113,40 @@ class SafeAdapter {
     }
     
     /**
-     * Create ethers adapter for Protocol Kit
-     * @param {Object} signer - Ethers signer
-     * @returns {Object} Ethers adapter for Protocol Kit
-     */
-    createEthersAdapter(signer) {
-        // Direct creation without EthersAdapter import
-        return {
-            ethers,
-            signerOrProvider: signer
-        };
-    }
-    
-    /**
-     * Initialize Protocol Kit with signer and safe address
-     * @param {Object} signer - Ethers signer
-     * @param {string} safeAddress - Safe address
-     * @returns {Promise<Object>} Protocol Kit instance with success status
-     */
-    async initializeProtocolKit(signer, safeAddress) {
-        try {
-            // Create ethers adapter
-            const ethersAdapter = this.createEthersAdapter(signer);
-            
-            // Check which initialization method is available (based on SDK version)
-            if (Safe.create) {
-                const safeSdk = await Safe.create({
-                    ethAdapter: ethersAdapter,
-                    safeAddress
-                });
-                
-                return {
-                    success: true,
-                    sdk: safeSdk,
-                    message: "Protocol Kit initialized successfully with create() method"
-                };
-            } else {
-                const safeSdk = await Safe.init({
-                    ethAdapter: ethersAdapter,
-                    safeAddress
-                });
-                
-                return {
-                    success: true,
-                    sdk: safeSdk,
-                    message: "Protocol Kit initialized successfully with init() method"
-                };
-            }
-        } catch (error) {
-            return {
-                success: false,
-                message: `Failed to initialize Protocol Kit: ${error.message}`
-            };
-        }
-    }
-    
-    /**
-     * Format transactions for Protocol Kit
+     * Format transactions for Safe format
      * @param {Object} bundle - Bundle with transaction data
-     * @returns {Array} Formatted transactions for Protocol Kit
+     * @returns {Array} Formatted transactions
      */
-    formatTransactionsForProtocolKit(bundle) {
+    formatTransactionsForSafe(bundle) {
         if (!bundle) {
             throw new Error("Bundle is required");
         }
         
         let transactions = [];
         
-        if (bundle.bundleData.transactions) {
-            // For SAFE_UI or SAFE_CLI formats
+        if (bundle.bundleData && bundle.bundleData.transactions) {
+            // For SAFE_UI format with bundleData
             transactions = bundle.bundleData.transactions.map(tx => ({
                 to: tx.to,
                 value: tx.value || '0',
                 data: tx.data || '0x',
-                operation: OperationType.Call // CALL operation, not DELEGATE_CALL
+                operation: 0 // CALL operation
             }));
-        } else if (Array.isArray(bundle.bundleData)) {
+        } else if (bundle.bundleData && Array.isArray(bundle.bundleData)) {
             // For EOA format converted to Safe format
             transactions = bundle.bundleData.map(tx => ({
                 to: tx.to,
                 value: tx.value || '0',
                 data: tx.data || '0x',
-                operation: OperationType.Call // CALL operation, not DELEGATE_CALL
+                operation: 0 // CALL operation
+            }));
+        } else if (bundle.transactions) {
+            // Direct transactions array
+            transactions = bundle.transactions.map(tx => ({
+                to: tx.to,
+                value: tx.value || '0',
+                data: tx.data || '0x',
+                operation: 0 // CALL operation
             }));
         } else {
             throw new Error("Unsupported bundle format for Safe transaction");
@@ -309,300 +154,319 @@ class SafeAdapter {
         
         return transactions;
     }
+
+    /**
+     * Calculate EIP-712 hash for a Safe transaction
+     * @param {string} safeAddress - Safe address
+     * @param {Object} tx - Transaction data
+     * @returns {string} Transaction hash
+     */
+    calculateSafeTxHash(safeAddress, tx) {
+        // Generate a domain separator for the Safe contract
+        const DOMAIN_SEPARATOR_TYPEHASH = ethers.utils.keccak256(
+            ethers.utils.toUtf8Bytes('EIP712Domain(uint256 chainId,address verifyingContract)')
+        );
+        
+        const domainSeparator = ethers.utils.keccak256(
+            ethers.utils.defaultAbiCoder.encode(
+                ['bytes32', 'uint256', 'address'],
+                [DOMAIN_SEPARATOR_TYPEHASH, this.chainId, safeAddress]
+            )
+        );
+        
+        // Encode the transaction details
+        const SAFE_TX_TYPEHASH = ethers.utils.keccak256(
+            ethers.utils.toUtf8Bytes(
+                'SafeTx(address to,uint256 value,bytes data,uint8 operation,uint256 safeTxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver,uint256 nonce)'
+            )
+        );
+        
+        const safeTxHash = ethers.utils.keccak256(
+            ethers.utils.defaultAbiCoder.encode(
+                ['bytes32', 'address', 'uint256', 'bytes32', 'uint8', 'uint256', 'uint256', 'uint256', 'address', 'address', 'uint256'],
+                [
+                    SAFE_TX_TYPEHASH,
+                    tx.to,
+                    tx.value,
+                    ethers.utils.keccak256(tx.data),
+                    tx.operation,
+                    tx.safeTxGas,
+                    tx.baseGas,
+                    tx.gasPrice,
+                    tx.gasToken,
+                    tx.refundReceiver,
+                    tx.nonce
+                ]
+            )
+        );
+        
+        // Combine domain separator and encoded tx
+        return ethers.utils.keccak256(
+            ethers.utils.solidityPack(
+                ['bytes1', 'bytes1', 'bytes32', 'bytes32'],
+                ['0x19', '0x01', domainSeparator, safeTxHash]
+            )
+        );
+    }
+
+    /**
+     * Sign a transaction hash using the signer's private key
+     * @param {Object} signer - Ethers Wallet
+     * @param {string} hash - Transaction hash
+     * @returns {Promise<string>} Signature in Safe format
+     */
+    async signTransactionHash(signer, hash) {
+        try {
+            console.log(`Signing hash: ${hash}`);
+            
+            // For Safe Transaction Service, we need to use a regular signature without the EIP-712 prefix
+            const signature = await signer._signingKey().signDigest(ethers.utils.arrayify(hash));
+            
+            // Format the signature as a hex string
+            const formattedSignature = ethers.utils.joinSignature(signature);
+            
+            return formattedSignature;
+        } catch (error) {
+            console.error(`Error signing transaction: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Decrypt the private key using the secure storage
+     * @param {string} address - Wallet address 
+     * @param {string} password - Password for decryption
+     * @returns {Promise<string>} Decrypted private key
+     */
+    async getDecryptedPrivateKey(address, password) {
+        console.log(`Decrypting private key for ${address}...`);
+        const secureStorage = new SecureStorage();
+        
+        // Check if we have a key for this address
+        const hasKey = await secureStorage.hasPrivateKey(address);
+        if (!hasKey) {
+            throw new Error(`No private key found for address ${address}`);
+        }
+        
+        // Decrypt the key
+        const privateKey = await secureStorage.getPrivateKey(address, password);
+        if (!privateKey) {
+            throw new Error('Failed to decrypt private key. Incorrect password or corrupted data.');
+        }
+        
+        console.log('Private key decrypted successfully');
+        return privateKey;
+    }
     
     /**
-     * Propose a Safe transaction 
+     * Propose a transaction to the Safe Transaction Service
+     * @param {string} safeAddress - Safe address 
+     * @param {Object} tx - Transaction data
+     * @param {string} safeTxHash - Safe transaction hash
+     * @param {string} signature - Transaction signature
+     * @param {string} senderAddress - Address of sender
+     * @returns {Promise<Object>} API response
+     */
+    async proposeTransactionToService(safeAddress, tx, safeTxHash, signature, senderAddress) {
+        try {
+            console.log('Proposing transaction to Safe Transaction Service...');
+            
+            // Ensure addresses are checksummed
+            const payload = {
+                safeAddress: ethers.utils.getAddress(safeAddress),
+                to: ethers.utils.getAddress(tx.to),
+                value: tx.value,
+                data: tx.data,
+                operation: tx.operation,
+                safeTxGas: tx.safeTxGas,
+                baseGas: tx.baseGas,
+                gasPrice: tx.gasPrice,
+                gasToken: ethers.utils.getAddress(tx.gasToken),
+                refundReceiver: ethers.utils.getAddress(tx.refundReceiver),
+                nonce: tx.nonce,
+                safeTxHash: safeTxHash,
+                contractTransactionHash: safeTxHash, // Required field
+                sender: ethers.utils.getAddress(senderAddress),
+                signature: signature,
+                origin: 'BeraBundle'
+            };
+            
+            console.log('Sending proposal payload...');
+            
+            // Submit the transaction proposal to the API
+            const response = await axios.post(
+                `${this.serviceUrl}/v1/safes/${safeAddress}/multisig-transactions/`,
+                payload
+            );
+            
+            console.log('✅ Transaction successfully proposed!');
+            return response.data;
+        } catch (error) {
+            console.error('Error proposing transaction:', error.message);
+            if (error.response && error.response.data) {
+                console.error('API response:', JSON.stringify(error.response.data, null, 2));
+                
+                // Handle hash mismatch errors by checking if the API provides the correct hash
+                if (error.response.data.nonFieldErrors && 
+                    error.response.data.nonFieldErrors[0] &&
+                    error.response.data.nonFieldErrors[0].includes("Contract-transaction-hash=")) {
+                    
+                    // Try to extract the expected hash from the error message
+                    const match = error.response.data.nonFieldErrors[0].match(/Contract-transaction-hash=([0-9a-fx]+)/);
+                    if (match && match[1]) {
+                        const correctHash = match[1];
+                        throw new Error(`Hash mismatch - correct hash: ${correctHash}`);
+                    }
+                }
+            }
+            throw error;
+        }
+    }
+    
+    /**
+     * Confirm a transaction with a signature
+     * @param {string} safeTxHash - Safe transaction hash
+     * @param {string} signature - Transaction signature
+     * @returns {Promise<Object>} API response
+     */
+    async confirmTransaction(safeTxHash, signature) {
+        try {
+            console.log('Confirming transaction...');
+            
+            const response = await axios.post(
+                `${this.serviceUrl}/v1/signatures/`,
+                {
+                    signature: signature,
+                    safeTxHash: safeTxHash
+                }
+            );
+            
+            console.log('✅ Transaction confirmed successfully!');
+            return response.data;
+        } catch (error) {
+            console.log('Note: Confirmation may have already been included in the proposal.');
+            console.log(`Confirmation error: ${error.message}`);
+            return null;
+        }
+    }
+    
+    /**
+     * Propose a Safe transaction via Safe Transaction Service API
+     * Using the implementation that works from test-safe-proposal.js
      * @param {string} safeAddress - Safe address
      * @param {Object} bundle - Bundle containing transaction data
-     * @param {Object} signer - Ethers signer for signing the transaction
+     * @param {string} signerAddress - Address of the signer
+     * @param {string} password - Password to decrypt the private key
      * @returns {Promise<Object>} Proposal result with success status
      */
-    async proposeSafeTransaction(safeAddress, bundle, signer) {
+    async proposeSafeTransaction(safeAddress, bundle, signerAddress, password) {
         try {
-            const signerAddress = await signer.getAddress();
+            console.log(`Proposing Safe transaction for ${safeAddress}...`);
+            console.log(`Using signer: ${signerAddress}`);
             
-            // Initialize Protocol Kit
-            const protocolKitResult = await this.initializeProtocolKit(signer, safeAddress);
+            // Step 1: Decrypt the private key
+            const privateKey = await this.getDecryptedPrivateKey(signerAddress, password);
             
-            if (!protocolKitResult.success) {
-                // Protocol Kit initialization failed, use fallback
-                return await this.proposeTransactionManually(safeAddress, bundle, signer);
-            }
+            // Step 2: Create the signer
+            const signer = new ethers.Wallet(privateKey, this.provider);
             
-            const safeSdk = protocolKitResult.sdk;
+            // Step 3: Format transactions from the bundle
+            const transactions = this.formatTransactionsForSafe(bundle);
+            console.log(`Formatted ${transactions.length} transactions`);
             
-            // Format transactions from the bundle
-            const formattedTxs = this.formatTransactionsForProtocolKit(bundle);
-            
-            // Get next nonce
+            // Step 4: Get the next nonce from Safe
             const nonceResult = await this.getNextNonce(safeAddress);
             if (!nonceResult.success) {
                 throw new Error(`Failed to get nonce: ${nonceResult.message}`);
             }
+            const nonce = nonceResult.nonce;
+            console.log(`Using nonce: ${nonce}`);
             
-            // Create a Safe transaction using Protocol Kit
-            const safeTransaction = await safeSdk.createTransaction({
-                transactions: formattedTxs,
-                options: {
-                    nonce: nonceResult.nonce
-                }
-            });
-            
-            // Sign the transaction
-            const { SigningMethod } = require('@safe-global/types-kit');
-            const signedSafeTx = await safeSdk.signTransaction(safeTransaction, SigningMethod.ETH_SIGN);
-            
-            // Get transaction hash
-            const safeTxHash = await safeSdk.getTransactionHash(safeTransaction);
-            
-            // Get the signature from the signed transaction
-            const signature = signedSafeTx.signatures.get(signerAddress.toLowerCase());
-            if (!signature) {
-                throw new Error('Failed to generate signature');
-            }
-            
-            // Prepare the API payload
-            const checksummedSafeAddress = ethers.utils.getAddress(safeAddress);
-            const checksummedSignerAddress = ethers.utils.getAddress(signerAddress);
-            
-            // Get properly formatted transaction data
-            const txTo = ethers.utils.getAddress(safeTransaction.data.to);
-            const txValue = safeTransaction.data.value.startsWith('0x') 
-                ? ethers.BigNumber.from(safeTransaction.data.value).toString() 
-                : safeTransaction.data.value;
-            
-            const proposalPayload = {
-                safe: checksummedSafeAddress,
-                to: txTo,
-                value: txValue,
-                data: safeTransaction.data.data,
-                operation: safeTransaction.data.operation,
-                gasToken: safeTransaction.data.gasToken || "0x0000000000000000000000000000000000000000",
-                safeTxGas: safeTransaction.data.safeTxGas || "0",
-                baseGas: safeTransaction.data.baseGas || "0", 
-                gasPrice: safeTransaction.data.gasPrice || "0",
-                refundReceiver: safeTransaction.data.refundReceiver || "0x0000000000000000000000000000000000000000",
-                nonce: safeTransaction.data.nonce,
-                contractTransactionHash: safeTxHash,
-                sender: checksummedSignerAddress,
-                signature: signature.data,
-                origin: "BeraBundle"
-            };
-            
-            // Submit the transaction to the API
-            const proposalResponse = await this.api.post(`/safes/${checksummedSafeAddress}/multisig-transactions/`, proposalPayload);
-            
-            if (proposalResponse.status !== 201 && proposalResponse.status !== 200) {
-                throw new Error(`Unexpected response status: ${proposalResponse.status}`);
-            }
-            
-            return {
-                success: true,
-                safeTxHash,
-                safeAddress,
-                transactionUrl: this.getSafeTransactionUrl(safeAddress, safeTxHash),
-                message: "Transaction proposed successfully"
-            };
-        } catch (error) {
-            return {
-                success: false,
-                message: `Failed to propose Safe transaction: ${error.message}`,
-                error: error
-            };
-        }
-    }
-    
-    /**
-     * Propose a transaction manually without Protocol Kit
-     * Used as a fallback when Protocol Kit initialization fails
-     * @param {string} safeAddress - Safe address
-     * @param {Object} bundle - Bundle with transaction data
-     * @param {Object} signer - Ethers signer for signing
-     * @returns {Promise<Object>} Proposal result with success status
-     */
-    async proposeTransactionManually(safeAddress, bundle, signer) {
-        try {
-            const signerAddress = await signer.getAddress();
-            
-            // Format transactions for manual preparation
-            let transactions = [];
-            
-            if (bundle.bundleData.transactions) {
-                // From SAFE_UI format
-                transactions = bundle.bundleData.transactions.map(tx => ({
-                    to: ethers.utils.getAddress(tx.to),
-                    value: tx.value || '0',
-                    data: tx.data || '0x',
-                    operation: 0 // Call operation (not delegatecall)
-                }));
-            } else if (Array.isArray(bundle.bundleData)) {
-                // From EOA format
-                transactions = bundle.bundleData.map(tx => ({
-                    to: ethers.utils.getAddress(tx.to),
-                    value: tx.value || '0',
-                    data: tx.data || '0x',
-                    operation: 0 // Call operation (not delegatecall)
-                }));
-            } else {
-                throw new Error("Unsupported bundle format for Safe transaction");
-            }
-            
-            // We can only handle a single transaction with this manual method
+            // Only support single transaction for now
             if (transactions.length === 0) {
-                throw new Error("No transactions found in bundle");
-            } else if (transactions.length > 1) {
-                console.log(`Warning: Bundle contains ${transactions.length} transactions.`);
-                console.log("Only the first transaction will be processed in fallback mode.");
+                throw new Error("No transactions in bundle");
             }
             
-            // Use only the first transaction
-            const tx = transactions[0];
+            // Step 5: Use the first transaction and prepare it for the Safe Transaction Service
+            const transaction = transactions[0];
+            console.log(`Using transaction: To=${transaction.to}, Value=${transaction.value}, Data=${transaction.data.substring(0, 50)}...`);
             
-            // Get the Safe nonce
-            const nonceResult = await this.getNextNonce(safeAddress);
-            const nonce = nonceResult.success ? nonceResult.nonce : 0;
+            // Step 6: Create transaction data for the Safe Transaction Service
+            const tx = {
+                to: transaction.to,
+                value: transaction.value === '0x0' ? '0' : transaction.value,
+                data: transaction.data,
+                operation: 0, // Call
+                safeTxGas: 0,
+                baseGas: 0,
+                gasPrice: 0,
+                gasToken: '0x0000000000000000000000000000000000000000',
+                refundReceiver: '0x0000000000000000000000000000000000000000',
+                nonce: nonce
+            };
             
-            // Create EIP-712 compatible data structure for Safe Transaction
-            const typedData = {
-                types: {
-                    EIP712Domain: [
-                        { name: 'verifyingContract', type: 'address' }
-                    ],
-                    SafeTx: [
-                        { name: 'to', type: 'address' },
-                        { name: 'value', type: 'uint256' },
-                        { name: 'data', type: 'bytes' },
-                        { name: 'operation', type: 'uint8' },
-                        { name: 'safeTxGas', type: 'uint256' },
-                        { name: 'baseGas', type: 'uint256' },
-                        { name: 'gasPrice', type: 'uint256' },
-                        { name: 'gasToken', type: 'address' },
-                        { name: 'refundReceiver', type: 'address' },
-                        { name: 'nonce', type: 'uint256' }
-                    ]
-                },
-                domain: {
-                    verifyingContract: safeAddress
-                },
-                primaryType: 'SafeTx',
-                message: {
-                    to: tx.to,
-                    value: tx.value || '0',
-                    data: tx.data || '0x',
-                    operation: tx.operation || 0,
-                    safeTxGas: '0',
-                    baseGas: '0',
-                    gasPrice: '0',
-                    gasToken: ethers.constants.AddressZero,
-                    refundReceiver: ethers.constants.AddressZero,
-                    nonce: nonce.toString()
+            console.log('Prepared transaction data for Safe Transaction Service');
+            
+            // Step 7: Calculate the Safe transaction hash
+            console.log('Calculating transaction hash...');
+            const safeTxHash = this.calculateSafeTxHash(safeAddress, tx);
+            console.log(`Calculated transaction hash: ${safeTxHash}`);
+            
+            // Step 8: Sign the transaction hash
+            console.log('Signing transaction hash...');
+            const signature = await this.signTransactionHash(signer, safeTxHash);
+            console.log(`Signature: ${signature}`);
+            
+            // Step 9: Propose the transaction to the Safe Transaction Service
+            let proposalResult;
+            let finalHash = safeTxHash;
+            
+            try {
+                // First try with our calculated hash
+                proposalResult = await this.proposeTransactionToService(safeAddress, tx, safeTxHash, signature, signerAddress);
+            } catch (error) {
+                // If there's a hash mismatch error
+                if (error.message && error.message.includes('Hash mismatch - correct hash:')) {
+                    // Extract the correct hash from the error message
+                    const correctHash = error.message.split('Hash mismatch - correct hash: ')[1];
+                    console.log(`Using correct hash from API error: ${correctHash}`);
+                    
+                    // Sign with the correct hash
+                    const correctSignature = await this.signTransactionHash(signer, correctHash);
+                    proposalResult = await this.proposeTransactionToService(safeAddress, tx, correctHash, correctSignature, signerAddress);
+                    finalHash = correctHash;
+                } else {
+                    throw error;
                 }
-            };
-            
-            // Calculate transaction hash manually (EIP-712 hash)
-            const safeTxHash = ethers.utils._TypedDataEncoder.hash(
-                typedData.domain,
-                { SafeTx: typedData.types.SafeTx },
-                typedData.message
-            );
-            
-            // Sign the transaction hash
-            const signature = await signer.signMessage(ethers.utils.arrayify(safeTxHash));
-            
-            // Format into the data structure expected by the API
-            const proposalPayload = {
-                safe: ethers.utils.getAddress(safeAddress),
-                to: tx.to,
-                value: tx.value.toString(),
-                data: tx.data,
-                operation: tx.operation,
-                safeTxGas: "0",
-                baseGas: "0",
-                gasPrice: "0",
-                gasToken: ethers.constants.AddressZero,
-                refundReceiver: ethers.constants.AddressZero,
-                nonce: nonce,
-                contractTransactionHash: safeTxHash,
-                sender: signerAddress,
-                signature: signature,
-                origin: "BeraBundle"
-            };
-            
-            // Submit the transaction to the API
-            const proposalResponse = await this.api.post(
-                `/safes/${ethers.utils.getAddress(safeAddress)}/multisig-transactions/`, 
-                proposalPayload
-            );
-            
-            if (proposalResponse.status === 201 || proposalResponse.status === 200) {
-                return {
-                    success: true,
-                    safeTxHash,
-                    safeAddress,
-                    transactionUrl: this.getSafeTransactionUrl(safeAddress, safeTxHash),
-                    message: "Transaction proposed successfully using fallback method"
-                };
-            } else {
-                throw new Error(`Unexpected response status: ${proposalResponse.status}`);
-            }
-        } catch (error) {
-            return {
-                success: false,
-                message: `Failed to propose Safe transaction manually: ${error.message}`
-            };
-        }
-    }
-    
-    /**
-     * Confirm an existing Safe transaction
-     * @param {string} safeAddress - Safe address
-     * @param {string} safeTxHash - Transaction hash to confirm
-     * @param {Object} signer - Ethers signer for signing
-     * @returns {Promise<Object>} Confirmation result with success status
-     */
-    async confirmSafeTransaction(safeAddress, safeTxHash, signer) {
-        try {
-            // Initialize Protocol Kit
-            const protocolKitResult = await this.initializeProtocolKit(signer, safeAddress);
-            
-            if (!protocolKitResult.success) {
-                return {
-                    success: false,
-                    message: `Failed to initialize Protocol Kit: ${protocolKitResult.message}`
-                };
             }
             
-            const safeSdk = protocolKitResult.sdk;
-            
-            // Sign the transaction hash using Protocol Kit
-            const { SigningMethod } = require('@safe-global/types-kit');
-            const signature = await safeSdk.signTransactionHash(safeTxHash, SigningMethod.ETH_SIGN);
-            
-            // Submit confirmation using direct API call
-            const confirmationPayload = {
-                signature: signature.data
-            };
-            
-            const confirmationResponse = await this.api.post(
-                `/multisig-transactions/${safeTxHash}/confirmations/`, 
-                confirmationPayload
-            );
-            
-            if (confirmationResponse.status !== 201 && confirmationResponse.status !== 200) {
-                throw new Error(`Unexpected response status: ${confirmationResponse.status}`);
+            // Step 10: Confirm the transaction with the same signature
+            console.log('\nConfirming transaction...');
+            try {
+                await this.confirmTransaction(finalHash, signature);
+            } catch (confirmError) {
+                console.log('Note: Confirmation may have already been included in the proposal.');
+                console.log(`Confirmation error: ${confirmError.message}`);
             }
+            
+            // Get the transaction URL and return success
+            const transactionUrl = this.getSafeTransactionUrl(safeAddress);
             
             return {
                 success: true,
-                safeTxHash,
-                safeAddress,
-                transactionUrl: this.getSafeTransactionUrl(safeAddress, safeTxHash),
-                message: "Transaction confirmed successfully"
+                message: 'Transaction successfully proposed to Safe Transaction Service',
+                transactionUrl,
+                safeTxHash: finalHash
             };
         } catch (error) {
+            console.error(`Error proposing transaction: ${error.message}`);
+            if (error.stack) {
+                console.error(error.stack);
+            }
+            
             return {
                 success: false,
-                message: `Failed to confirm Safe transaction: ${error.message}`
+                message: `Failed to propose Safe transaction: ${error.message}`
             };
         }
     }

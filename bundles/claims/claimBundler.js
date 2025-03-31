@@ -5,8 +5,8 @@
 const { ethers } = require('ethers');
 const fs = require('fs').promises;
 const path = require('path');
-const config = require('../config');
-const { ErrorHandler } = require('../utils/errorHandler');
+const config = require('../../config');
+const { ErrorHandler } = require('../../utils/errorHandler');
 
 /**
  * Output formats for claim bundles
@@ -338,7 +338,7 @@ class ClaimBundler {
                         createdAt: Date.now(),
                         meta: {
                             name: `Claim rewards from ${vaultCount + bgtStakerCount} sources ${validatorBoosts.length > 0 ? '+ delegate to ' + validatorBoosts.length + ' validators' : ''} for ${name}`,
-                            description: description
+                            description: `Berabundle: ${description}`
                         },
                         transactions: uiPayloadsWithGas.map(payload => ({
                             to: payload.to,
@@ -400,6 +400,7 @@ class ClaimBundler {
                         // Add metadata useful for the CLI processing
                         meta: {
                             name: `Claim rewards for ${name}`,
+                            description: `Berabundle: Claim transactions for ${name}`,
                             fromAddress: fromAddress,
                             chainId: cliNetwork.chainId,
                             vaultCount: cliVaultCount,
@@ -421,13 +422,47 @@ class ClaimBundler {
     }
 
     /**
-     * Save bundle to a file
+     * Generates instructions for directly opening transactions in the Safe Transaction Builder
+     * 
+     * Instead of generating a potentially very long URL that could exceed browser limits,
+     * this method provides clear instructions on how to use the Safe UI's batch import feature.
+     * 
+     * @param {Object} bundle - Formatted transaction bundle in SAFE_UI format
+     * @param {string} safeAddress - Safe wallet address
+     * @returns {Object} Object containing instruction text and URLs
+     */
+    generateTransactionBuilderInstructions(bundle, safeAddress) {
+        try {
+            const chainPrefix = 'ber'; // Chain prefix for Berachain
+            const baseUrl = config.networks.berachain.safe.appUrl;
+            
+            // Create a proper Safe URL
+            const safeUrl = `${baseUrl}/home?safe=${chainPrefix}:${safeAddress}`;
+            
+            return {
+                safeUrl: safeUrl,
+                instructions: [
+                    `1. Go to ${safeUrl}`,
+                    `2. Click "New Transaction" > "Transaction Builder"`,
+                    `3. Click "Load" in the top right corner`,
+                    `4. Select the saved file to import all transactions at once`
+                ]
+            };
+        } catch (error) {
+            ErrorHandler.handle(error, 'ClaimBundler.generateTransactionBuilderInstructions');
+            return null;
+        }
+    }
+
+    /**
+     * Save bundle to a file and generate Safe instructions if appropriate
      * @param {Object|Array} bundle - Transaction bundle
      * @param {string} name - Name identifier for the file
      * @param {string} format - Output format
-     * @returns {Promise<string>} Path to the saved file
+     * @param {string} safeAddress - Optional Safe address for instructions generation
+     * @returns {Promise<Object>} Result with filepath and additional information
      */
-    async saveBundle(bundle, name, format) {
+    async saveBundle(bundle, name, format, safeAddress = null) {
         try {
             // Create a human-readable timestamp
             const now = new Date();
@@ -442,9 +477,22 @@ class ClaimBundler {
             const filepath = path.join(config.paths.outputDir, filename);
 
             await fs.writeFile(filepath, JSON.stringify(bundle, null, 2));
-            // We don't log here because berabundle.js will display a message
-
-            return filepath;
+            
+            // Create result object
+            const result = {
+                filepath,
+                format: formatString
+            };
+            
+            // Generate Safe instructions if format is Safe UI and safeAddress is provided
+            if (format === OutputFormat.SAFE_UI && safeAddress) {
+                const safeInstructions = this.generateTransactionBuilderInstructions(bundle, safeAddress);
+                if (safeInstructions) {
+                    result.safeInstructions = safeInstructions;
+                }
+            }
+            
+            return result;
         } catch (error) {
             ErrorHandler.handle(error, 'ClaimBundler.saveBundle');
             throw error;
@@ -518,13 +566,14 @@ class ClaimBundler {
             // Check if redelegation is requested
             let redelegationPayloads = [];
             if (options.redelegate && totalBGT > 0) {
-                // Import RedelegationManager only when needed to avoid circular dependencies
-                const RedelegationManager = require('./redelegationManager');
-                const redelegationManager = new RedelegationManager(this.provider);
-                await redelegationManager.initialize();
+                // Import BoostBundler (which is the RedelegationManager) from the correct path
+                // and use the right variable name for clarity
+                const BoostBundler = require('../boosts/boostBundler');
+                const boostBundler = new BoostBundler(this.provider);
+                await boostBundler.initialize();
                 
                 // Create redelegation transactions
-                const redelegationResult = redelegationManager.createRedelegationTransactions(
+                const redelegationResult = boostBundler.createRedelegationTransactions(
                     userAddress, 
                     totalBGT
                 );
@@ -554,8 +603,13 @@ class ClaimBundler {
                     .join(", ")}`;
             }
             
-            // Save the bundle to a file
-            const filepath = await this.saveBundle(formattedBundle, name, format);
+            // Save the bundle to a file and generate Transaction Builder URL if appropriate
+            const bundleResult = await this.saveBundle(
+                formattedBundle, 
+                name, 
+                format,
+                format === OutputFormat.SAFE_UI ? recipientAddress : null // Pass recipientAddress as safeAddress for Safe UI format
+            );
 
             // Format rewards by type for summary
             const rewardSummary = Object.entries(rewardsByType)
@@ -564,7 +618,8 @@ class ClaimBundler {
 
             return {
                 success: true,
-                filepath,
+                filepath: bundleResult.filepath,
+                safeInstructions: bundleResult.safeInstructions,
                 bundleData: formattedBundle,
                 summary: {
                     vaultCount,

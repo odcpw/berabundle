@@ -24,4 +24,4 @@ wallets.json
 # Metadata cache files - users will get fresh metadata when they run the app
 tokens.json
 validators.json
-vaults.json 
+vaults.json safe_docs/

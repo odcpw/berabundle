@@ -1,22 +1,30 @@
-// safeService.js - Safe Transaction Service integration
-// Uses the SafeAdapter for interacting with the Safe Transaction Service
+/**
+ * safeExecutor.js - Safe Transaction Service Executor
+ * 
+ * This module provides an executor for Safe multisig wallets using
+ * the SafeAdapter for direct interaction with the Safe Transaction Service API.
+ * It implements the working direct API approach from test-safe-proposal.js.
+ */
 const { ethers } = require('ethers');
 const config = require('../../config');
 const { ErrorHandler } = require('../../utils/errorHandler');
 const SafeAdapter = require('../adapters/safeAdapter');
 
 /**
- * Safe Service integration for Berachain
- * This is a wrapper around the SafeAdapter for backward compatibility
+ * Safe executor for multisig wallet transactions
  */
-class SafeService {
+class SafeExecutor {
+    /**
+     * Create a new SafeExecutor
+     * @param {ethers.providers.Provider} provider - Ethers provider
+     */
     constructor(provider) {
         this.provider = provider || new ethers.providers.JsonRpcProvider(config.networks.berachain.rpcUrl);
         
-        // Initialize the SafeAdapter or use an injected one
+        // Initialize the SafeAdapter
         this.adapter = null;
         
-        console.log(`Safe Service initialized with Berachain`);
+        console.log(`Safe Executor initialized with Berachain provider`);
     }
     
     /**
@@ -25,7 +33,7 @@ class SafeService {
      */
     _ensureAdapter() {
         if (!this.adapter) {
-            // Create a new adapter if not injected
+            // Create a new adapter if not already created
             this.adapter = new SafeAdapter(this.provider);
         }
         return this.adapter;
@@ -34,28 +42,12 @@ class SafeService {
     /**
      * Get Safe transaction URL for the web app
      * @param {string} safeAddress - Safe address
-     * @param {string} safeTxHash - Safe transaction hash
+     * @param {string} safeTxHash - Safe transaction hash (optional)
      * @returns {string} Safe transaction URL
      */
     getSafeTransactionUrl(safeAddress, safeTxHash) {
         const adapter = this._ensureAdapter();
         return adapter.getSafeTransactionUrl(safeAddress, safeTxHash);
-    }
-    
-    /**
-     * Get the next nonce for a Safe
-     * @param {string} safeAddress - Safe address
-     * @returns {Promise<number>} Next nonce
-     */
-    async getNextNonce(safeAddress) {
-        const adapter = this._ensureAdapter();
-        const result = await adapter.getNextNonce(safeAddress);
-        
-        if (!result.success) {
-            throw new Error(`Failed to get next nonce: ${result.message}`);
-        }
-        
-        return result.nonce;
     }
     
     /**
@@ -69,52 +61,117 @@ class SafeService {
     }
     
     /**
-     * Format transactions from bundle for Protocol Kit
-     * @param {Object} bundle - Bundle containing transaction data
-     * @returns {Array} Formatted meta transactions for Protocol Kit
+     * Execute a bundle transaction through a Safe multisig wallet
+     * This will propose the transaction to the Safe Transaction Service
+     * @param {Object} options - Execution options
+     * @param {string} options.safeAddress - Safe address
+     * @param {Object} options.bundle - Bundle containing transaction data
+     * @param {string} options.signerAddress - Address of the signer
+     * @param {string} options.password - Password to decrypt the private key
+     * @returns {Promise<Object>} Execution result
      */
-    formatTransactionsForProtocolKit(bundle) {
-        const adapter = this._ensureAdapter();
-        return adapter.formatTransactionsForProtocolKit(bundle);
+    async execute(options) {
+        try {
+            const { safeAddress, bundle, signerAddress, password } = options;
+            
+            if (!safeAddress) {
+                throw new Error("Safe address is required");
+            }
+            
+            if (!bundle) {
+                throw new Error("Bundle is required");
+            }
+            
+            if (!signerAddress) {
+                throw new Error("Signer address is required");
+            }
+            
+            if (!password) {
+                throw new Error("Password is required to decrypt the private key");
+            }
+            
+            console.log(`Executing Safe transaction for ${safeAddress} with signer ${signerAddress}`);
+            
+            // Get adapter and propose the transaction using the direct API approach from test-safe-proposal.js
+            const adapter = this._ensureAdapter();
+            const result = await adapter.proposeSafeTransaction(safeAddress, bundle, signerAddress, password);
+            
+            if (!result.success) {
+                throw new Error(`Failed to execute Safe transaction: ${result.message}`);
+            }
+            
+            return {
+                success: true,
+                message: result.message,
+                transactionUrl: result.transactionUrl,
+                safeTxHash: result.safeTxHash,
+                needsConfirmation: true,
+                type: 'safe',
+                status: 'proposed'
+            };
+        } catch (error) {
+            console.error("SafeExecutor error:", error.message);
+            if (error.stack) {
+                console.error(error.stack);
+            }
+            
+            return {
+                success: false,
+                message: `Safe execution failed: ${error.message}`,
+                type: 'safe',
+                status: 'failed'
+            };
+        }
     }
     
     /**
-     * Propose a Safe transaction using Protocol Kit and direct API calls
-     * This will make the transaction appear in the Safe UI for all owners
+     * Convert a bundle from EOA format to Safe format
+     * @param {Object} bundle - Bundle in EOA format
      * @param {string} safeAddress - Safe address
-     * @param {Object} bundle - Bundle containing transaction data
-     * @param {Object} signer - Ethers signer for signing the transaction
-     * @returns {Promise<Object>} Proposal result
+     * @returns {Object} Bundle in Safe format
      */
-    async proposeSafeTransaction(safeAddress, bundle, signer) {
+    convertEoaToSafeFormat(bundle, safeAddress) {
         const adapter = this._ensureAdapter();
-        return await adapter.proposeSafeTransaction(safeAddress, bundle, signer);
-    }
-    
-    /**
-     * Alias for proposeSafeTransaction for backward compatibility
-     */
-    async proposeSafeTransactionWithSdk(safeAddress, bundle, signer) {
-        return this.proposeSafeTransaction(safeAddress, bundle, signer);
+        return adapter.convertEoaToSafeFormat(bundle, safeAddress);
     }
     
     /**
      * Confirm an existing Safe transaction
      * @param {string} safeAddress - Safe address
      * @param {string} safeTxHash - Transaction hash to confirm
-     * @param {Object} signer - Ethers signer for signing
+     * @param {string} signerAddress - Address of the signer
+     * @param {string} password - Password to decrypt the private key
      * @returns {Promise<Object>} Confirmation result
      */
-    async confirmSafeTransaction(safeAddress, safeTxHash, signer) {
-        const adapter = this._ensureAdapter();
-        const result = await adapter.confirmSafeTransaction(safeAddress, safeTxHash, signer);
-        
-        if (!result.success) {
-            throw new Error(`Failed to confirm Safe transaction: ${result.message}`);
+    async confirmTransaction(safeAddress, safeTxHash, signerAddress, password) {
+        try {
+            const adapter = this._ensureAdapter();
+            
+            // First decrypt the private key
+            const privateKey = await adapter.getDecryptedPrivateKey(signerAddress, password);
+            
+            // Create the signer
+            const signer = new ethers.Wallet(privateKey, this.provider);
+            
+            // Sign the transaction hash
+            const signature = await adapter.signTransactionHash(signer, safeTxHash);
+            
+            // Confirm the transaction
+            await adapter.confirmTransaction(safeTxHash, signature);
+            
+            return {
+                success: true,
+                message: "Transaction confirmed successfully",
+                safeTxHash
+            };
+        } catch (error) {
+            console.error("Error confirming transaction:", error.message);
+            return {
+                success: false,
+                message: `Failed to confirm transaction: ${error.message}`
+            };
         }
-        
-        return result;
     }
 }
 
-module.exports = SafeService;
+module.exports = SafeExecutor;

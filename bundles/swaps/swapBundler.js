@@ -1,16 +1,106 @@
 /**
- * TokenSwapper - Interactive UI for token balance display and swapping
+ * Swap Bundle Manager - Creates and manages token swap bundles
  * 
- * This component provides a user interface for:
- * - Displaying token balances with USD values and sorting
- * - Filtering out dust tokens (below minimum value threshold)
- * - Selecting tokens to swap to BERA
- * - Specifying swap amounts
- * - Generating and saving transaction bundles for different wallet types
+ * This module contains:
+ * 1. SwapBundler - High-level component initialized with provider
+ * 2. TokenSwapper - UI component for displaying balances and swapping
+ * 
+ * This design bridges between the BundleCreator's initialization pattern
+ * (which passes a provider) and the TokenSwapper UI component.
  */
 
 const inquirer = require('inquirer');
-const config = require('../config');
+const config = require('../../config');
+const UIHandler = require('../../ui/common/uiHandler');
+const TokenService = require('./tokenChecker');
+const { ErrorHandler } = require('../../utils/errorHandler');
+
+/**
+ * Swap Bundler - Creates swap bundles and manages the token swap UI
+ * 
+ * This is a wrapper around TokenSwapper that handles the initialization
+ * of all required dependencies from just a provider.
+ */
+class SwapBundler {
+    /**
+     * Creates a new SwapBundler instance
+     * 
+     * @param {ethers.providers.Provider} provider - Ethereum provider for blockchain interactions
+     * @param {Object} app - Optional main app instance for access to other services
+     */
+    constructor(provider, app = null) {
+        // Initialize dependencies
+        this.provider = provider;
+        this.app = app;
+        
+        // Create TokenService
+        this.tokenService = new TokenService(provider, app);
+        
+        // Ensure the app reference is also available to tokenService
+        this.tokenService.app = app;
+        
+        // Create UI Handler
+        this.uiHandler = new UIHandler();
+        
+        // Get WalletService from app if available
+        this.walletService = app && app.walletRepository ? app.walletRepository : null;
+        
+        // Create TokenSwapper instance with all required dependencies
+        this.tokenSwapper = new TokenSwapper(this.uiHandler, this.tokenService, this.walletService);
+    }
+    
+    /**
+     * Provides access to the TokenService instance
+     * @returns {TokenService} The token service instance
+     */
+    get tokenService() {
+        return this._tokenService;
+    }
+    
+    /**
+     * Sets the TokenService instance
+     * @param {TokenService} service - The token service to set
+     */
+    set tokenService(service) {
+        this._tokenService = service;
+    }
+    
+    /**
+     * Delegates method calls to the underlying TokenSwapper
+     * @param {string} method - Method name to call
+     * @param {Array} args - Arguments to pass to the method
+     * @returns {Promise<any>} Result of the method call
+     */
+    async _delegateToTokenSwapper(method, ...args) {
+        if (!this.tokenSwapper[method]) {
+            throw new Error(`Method ${method} not found in TokenSwapper`);
+        }
+        return this.tokenSwapper[method](...args);
+    }
+    
+    /**
+     * Displays token balances and swap UI
+     * 
+     * @param {string} walletAddress - Wallet address to check
+     * @param {string} walletName - Human-readable wallet name
+     * @returns {Promise<void>}
+     */
+    async displayTokenBalances(walletAddress, walletName) {
+        return this._delegateToTokenSwapper('displayTokenBalances', walletAddress, walletName);
+    }
+    
+    /**
+     * Manages the swap tokens flow - delegate to TokenSwapper
+     * 
+     * @param {string} walletAddress - Wallet address initiating swap
+     * @param {string} walletName - Human-readable wallet name
+     * @param {Array<Object>} tokens - Array of token objects
+     * @returns {Promise<void>}
+     */
+    async swapTokensFlow(walletAddress, walletName, tokens) {
+        return this._delegateToTokenSwapper('swapTokensFlow', walletAddress, walletName, tokens);
+    }
+}
 
 /**
  * UI component for managing token balances and swap operations
@@ -341,9 +431,10 @@ class TokenSwapper {
                 name: 'action',
                 message: 'What would you like to do with this swap bundle?',
                 choices: [
-                    { name: 'Save bundle for EOA wallet', value: 'save_eoa' },
-                    { name: 'Save bundle for Safe multisig', value: 'save_safe' },
-                    { name: 'Execute now with private key', value: 'execute' },
+                    { name: 'EOA Wallet (JSON only)', value: 'save_eoa' },
+                    { name: 'EOA Wallet (JSON + Execute)', value: 'execute_eoa' },
+                    { name: 'Safe Multisig (JSON only)', value: 'save_safe' },
+                    { name: 'Safe Multisig (JSON + Propose & Sign)', value: 'execute_safe' },
                     { name: 'Cancel', value: 'cancel' }
                 ]
             }
@@ -353,11 +444,27 @@ class TokenSwapper {
             return;
         }
         
-        // Determine format based on action
-        let format = this.tokenService.OutputFormat.EOA; // Default to EOA
+        // Determine format and execution option based on action
+        let format;
+        let shouldExecute = false;
         
-        if (action === 'save_safe') {
-            format = this.tokenService.OutputFormat.SAFE_UI;
+        switch (action) {
+            case 'save_eoa':
+                format = this.tokenService.OutputFormat.EOA;
+                shouldExecute = false;
+                break;
+            case 'execute_eoa':
+                format = this.tokenService.OutputFormat.EOA;
+                shouldExecute = true;
+                break;
+            case 'save_safe':
+                format = this.tokenService.OutputFormat.SAFE_UI;
+                shouldExecute = false;
+                break;
+            case 'execute_safe':
+                format = this.tokenService.OutputFormat.SAFE_UI;
+                shouldExecute = true;
+                break;
         }
         
         // Format transactions for the selected output format
@@ -381,11 +488,12 @@ class TokenSwapper {
         }
         
         try {
-            // Save the bundle to a file
+            // Save the bundle to a file and generate Transaction Builder URL if applicable
             const bundleResult = await this.tokenService.saveSwapBundle(
                 formattedBundle,
                 walletName,
-                format
+                format,
+                walletAddress // Pass wallet address for Transaction Builder URL generation
             );
             
             if (!bundleResult.success) {
@@ -396,9 +504,68 @@ class TokenSwapper {
             
             console.log(`\nSwap bundle saved to ${bundleResult.filepath}`);
             
-            if (action === 'execute') {
-                // Redirect to the 'Send Bundle' option for execution
-                console.log("\nBundle saved. Please use the 'Send Bundle' option from the main menu to execute it.");
+            // Handle based on format and execution options
+            if (shouldExecute) {
+                // Create bundle object with required properties for signAndSendBundleFlow
+                const bundle = {
+                    bundleData: formattedBundle,
+                    filepath: bundleResult.filepath,
+                    summary: {
+                        format: format,
+                        totalTransactions: allTransactions.length,
+                        rewardSummary: swapBundle.formattedTotalExpectedBera
+                    }
+                };
+                
+                try {
+                    // Verify transaction service is available
+                    if (!this.tokenService.app) {
+                        throw new Error("App reference is not available");
+                    }
+                    
+                    if (!this.tokenService.app.transactionService) {
+                        // Try to find transactionService in global.app if available
+                        if (global && global.app && global.app.transactionService) {
+                            console.log("Using global.app.transactionService for execution");
+                            await global.app.transactionService.signAndSendBundleFlow(bundle);
+                            return; // Early return after successful execution
+                        } else {
+                            throw new Error("Transaction service is not available");
+                        }
+                    }
+                    
+                    if (format === this.tokenService.OutputFormat.EOA) {
+                        // For EOA wallets - execute immediately
+                        console.log("\nExecuting transactions with your private key...");
+                        await this.tokenService.app.transactionService.signAndSendBundleFlow(bundle);
+                    } else {
+                        // For Safe wallets - propose and sign
+                        console.log("\nProposing and signing transactions for Safe...");
+                        await this.tokenService.app.transactionService.signAndSendBundleFlow(bundle);
+                    }
+                } catch (error) {
+                    ErrorHandler.handle(error, 'TokenSwapper.swapTokensFlow - execute');
+                    console.log("\n❌ Error executing transactions: " + error.message);
+                    console.log("Bundle has been saved but could not be executed at this time.");
+                    await this.uiHandler.pause();
+                }
+            } else {
+                // JSON only option - just provide instructions
+                if (format === this.tokenService.OutputFormat.EOA) {
+                    // For EOA wallets
+                    console.log("\nThe swap bundle has been saved as JSON only. You can:");
+                    console.log("1. Use this file later with the 'Send Bundle' option from the main menu");
+                    console.log("2. Import it into your wallet of choice that supports batch transactions");
+                } else {
+                    // For Safe wallets - show Safe Transaction Builder instructions
+                    if (bundleResult.safeInstructions) {
+                        console.log("\n📋 Instructions to import transactions into Safe:");
+                        bundleResult.safeInstructions.instructions.forEach(instruction => {
+                            console.log(instruction);
+                        });
+                        console.log(`5. Select the saved file at:\n   ${bundleResult.filepath}`);
+                    }
+                }
             }
             
             await this.uiHandler.pause();
@@ -409,4 +576,8 @@ class TokenSwapper {
     }
 }
 
-module.exports = TokenSwapper;
+// Export the SwapBundler as the main component
+module.exports = SwapBundler;
+
+// Also expose TokenSwapper for direct use if needed
+module.exports.TokenSwapper = TokenSwapper;

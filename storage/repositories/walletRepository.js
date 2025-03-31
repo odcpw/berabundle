@@ -2,9 +2,9 @@
 const { ethers } = require('ethers');
 const fs = require('fs').promises;
 const crypto = require('crypto');
-const config = require('../config');
-const { ErrorHandler } = require('../utils/errorHandler');
-const SecureStorage = require('./secureStorage');
+const config = require('../../config');
+const { ErrorHandler } = require('../../utils/errorHandler');
+const SecureStorage = require('../engines/secureStorage');
 
 /**
  * Service for managing wallet addresses securely

@@ -1,6 +1,38 @@
-# BeraBundle
+# BeraBundle2
 
-A command-line tool for managing and claiming rewards on Berachain. It helps you check and bundle reward claims from multiple vaults into a single transaction.
+A command-line tool for creating and executing transaction bundles on Berachain. It supports:
+
+1. **Claim Bundles** - Bundle reward claims from vaults, BGT staking, and validators
+2. **Boost Bundles** - Bundle validator delegation operations
+3. **Swap Bundles** - Bundle token swap operations
+
+## Architecture
+
+BeraBundle uses a bundle-centric architecture with clean separation of concerns:
+
+```
+berabundle/
+├── bundles/               # Bundle creation and handling
+│   ├── claims/            # Claim bundle operations
+│   ├── boosts/            # Validator boost operations
+│   └── swaps/             # Token swap operations
+│
+├── execution/             # Bundle execution
+│   ├── executors/         # Bundle execution engines
+│   └── adapters/          # Blockchain adapters
+│
+├── storage/               # Data storage
+│   ├── engines/           # Storage engines
+│   └── repositories/      # Data repositories
+│
+├── ui/                    # User interface
+│   ├── common/            # Common UI components
+│   └── flows/             # UI flows by bundle type
+│
+└── utils/                 # Utilities
+```
+
+See the [Bundle Architecture Documentation](docs/BUNDLES.md) for more details.
 
 ## Installation
 
