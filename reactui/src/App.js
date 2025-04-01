@@ -2,11 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import './App.css';
 import TokenList from './components/TokenList';
+import RewardsList from './components/RewardsList';
+import CliTokenList from './components/CliTokenList';
+import CliRewardsList from './components/CliRewardsList';
+import CliValidatorBoosts from './components/CliValidatorBoosts';
 import ApiKeyInput from './components/ApiKeyInput';
 import MetadataManager from './components/MetadataManager';
 import SwapForm from './components/SwapForm';
 import tokenBridge from './services/TokenBridge';
 import metadataService from './services/MetadataService';
+import rewardsService from './services/RewardsService';
 
 function App() {
   // Wallet connection state
@@ -32,8 +37,26 @@ function App() {
   const [beraToken, setBeraToken] = useState(null);
   const [swapStatus, setSwapStatus] = useState({ loading: false, success: false, error: null });
   
+  // Rewards state
+  const [rewards, setRewards] = useState([]);
+  const [selectedRewards, setSelectedRewards] = useState([]);
+  const [loadingRewards, setLoadingRewards] = useState(false);
+  const [rewardsError, setRewardsError] = useState('');
+  const [claimStatus, setClaimStatus] = useState({ loading: false, success: false, error: null });
+  
+  // Validator boosts state
+  const [validatorBoosts, setValidatorBoosts] = useState({ activeBoosts: [], queuedBoosts: [] });
+  const [loadingBoosts, setLoadingBoosts] = useState(false);
+  const [boostsError, setBoostsError] = useState('');
+  
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
+  
+  // Display mode state (true = CLI mode, false = GUI mode)
+  const [cliMode, setCliMode] = useState(() => {
+    const savedMode = localStorage.getItem('berabundleDisplayMode');
+    return savedMode === 'cli';
+  });
   
   // Network details based on Berachain
   const networkDetails = {
@@ -44,12 +67,18 @@ function App() {
     blockExplorerUrl: 'https://artio.beratrail.io'
   };
 
-  // Initialize token bridge when provider and API key are available
+  // Initialize services when provider and API key are available
   useEffect(() => {
     if (provider && apiKey) {
-      const initialized = tokenBridge.initialize(provider, apiKey);
-      if (!initialized) {
+      const tokenBridgeInitialized = tokenBridge.initialize(provider, apiKey);
+      const rewardsServiceInitialized = rewardsService.initialize(provider, apiKey);
+      
+      if (!tokenBridgeInitialized) {
         console.error("Failed to initialize token bridge");
+      }
+      
+      if (!rewardsServiceInitialized) {
+        console.error("Failed to initialize rewards service");
       }
     }
   }, [provider, apiKey]);
@@ -61,7 +90,13 @@ function App() {
     
     if (provider) {
       tokenBridge.initialize(provider, newApiKey);
+      rewardsService.initialize(provider, newApiKey);
     }
+  };
+  
+  // Handle reward selection
+  const handleRewardSelect = (selected) => {
+    setSelectedRewards(selected);
   };
 
   // Connect wallet function
@@ -198,6 +233,118 @@ function App() {
   // Handle swap form close
   const handleCloseSwapForm = () => {
     setShowSwapForm(false);
+  };
+  
+  // Check rewards function
+  async function checkRewards() {
+    if (!account || !rewardsService.isInitialized()) return;
+    
+    setLoadingRewards(true);
+    setRewardsError('');
+    setClaimStatus({ loading: false, success: false, error: null });
+    
+    try {
+      // First check validator boosts so we can include them in the rewards
+      await checkValidatorBoosts();
+      
+      // Call rewards service to check for claimable rewards
+      const result = await rewardsService.checkRewards(account);
+      
+      if (result.success) {
+        // Inject validator boost data into BGT Staker rewards
+        const processedRewards = result.rewards.map(reward => {
+          if (reward.type === 'bgtStaker') {
+            return {
+              ...reward,
+              validatorBoosts: validatorBoosts
+            };
+          }
+          return reward;
+        });
+        
+        setRewards(processedRewards || []);
+      } else {
+        setRewardsError(result.error || "Failed to check rewards");
+      }
+    } catch (err) {
+      console.error("Error checking rewards:", err);
+      setRewardsError(err.message || "Failed to check rewards");
+    } finally {
+      setLoadingRewards(false);
+    }
+  }
+  
+  // Check validator boosts function
+  async function checkValidatorBoosts() {
+    if (!account || !rewardsService.isInitialized()) return;
+    
+    setLoadingBoosts(true);
+    setBoostsError('');
+    
+    try {
+      // Call rewards service to check for validator boosts
+      const boostsResult = await rewardsService.checkValidatorBoosts(account);
+      
+      if (boostsResult.error) {
+        setBoostsError(boostsResult.error || "Failed to check validator boosts");
+        return null;
+      } else {
+        setValidatorBoosts(boostsResult);
+        return boostsResult;
+      }
+    } catch (err) {
+      console.error("Error checking validator boosts:", err);
+      setBoostsError(err.message || "Failed to check validator boosts");
+      return null;
+    } finally {
+      setLoadingBoosts(false);
+    }
+  }
+  
+  // Claim rewards function
+  async function claimRewards() {
+    if (!account || !rewardsService.isInitialized() || selectedRewards.length === 0) return;
+    
+    setClaimStatus({
+      loading: true,
+      success: false,
+      error: null
+    });
+    
+    try {
+      // Call rewards service to claim rewards
+      const result = await rewardsService.claimRewards(account, selectedRewards);
+      
+      if (result.success) {
+        setClaimStatus({
+          loading: false,
+          success: true,
+          error: null
+        });
+        
+        // Update the rewards list with remaining unclaimed rewards
+        setRewards(result.remainingRewards || []);
+        setSelectedRewards([]);
+        
+        // Update token balances after claiming
+        setTimeout(() => {
+          loadTokenBalances();
+        }, 1000);
+      } else {
+        setClaimStatus({
+          loading: false,
+          success: false,
+          error: result.error || "Failed to claim rewards"
+        });
+      }
+    } catch (err) {
+      console.error("Error claiming rewards:", err);
+      setClaimStatus({
+        loading: false,
+        success: false,
+        error: err.message || "Failed to claim rewards"
+      });
+    }
   };
 
   // Execute token swap
@@ -441,6 +588,13 @@ function App() {
   const toggleSettings = () => {
     setShowSettings(!showSettings);
   };
+  
+  // Toggle display mode between CLI and GUI
+  const toggleDisplayMode = () => {
+    const newMode = !cliMode;
+    setCliMode(newMode);
+    localStorage.setItem('berabundleDisplayMode', newMode ? 'cli' : 'gui');
+  };
 
   return (
     <div className="App">
@@ -451,13 +605,23 @@ function App() {
         
         <div className="header-actions">
           {account && (
-            <button 
-              className="settings-button" 
-              onClick={toggleSettings}
-              title="Settings"
-            >
-              ⚙️
-            </button>
+            <>
+              <button 
+                className="display-mode-toggle" 
+                onClick={toggleDisplayMode}
+                title={cliMode ? "Switch to GUI Mode" : "Switch to CLI Mode"}
+              >
+                {cliMode ? "GUI" : "CLI"}
+              </button>
+              
+              <button 
+                className="settings-button" 
+                onClick={toggleSettings}
+                title="Settings"
+              >
+                ⚙️
+              </button>
+            </>
           )}
           
           {!account ? (
@@ -533,67 +697,244 @@ function App() {
             </div>
           ) : (
             <>
-              {/* Token Balance Check Button */}
-              <div className="token-check-section">
-                <button 
-                  onClick={loadTokenBalances} 
-                  disabled={loadingTokens || !apiKey}
-                  className="token-check-button"
-                >
-                  {loadingTokens ? "Loading Tokens..." : "Check Token Balances"}
-                </button>
-              </div>
-              
-              {/* Token List */}
-              {(tokens.length > 0 || loadingTokens || tokenError) && (
-                <div className="token-list-section">
-                  <TokenList 
-                    tokens={tokens}
-                    totalValueUsd={totalValueUsd}
-                    totalValueNative={totalValueBera}
-                    loading={loadingTokens}
-                    error={tokenError}
-                    selectable={true}
-                    onTokenSelect={handleTokenSelect}
-                  />
-                  
-                  {/* Swap button below the token list if tokens are selected */}
-                  {selectedTokens.length > 0 && (
-                    <div className="swap-button-container">
+              {/* CLI MODE */}
+              {cliMode ? (
+                <div className="cli-mode-layout">
+                  {/* Action Buttons (in CLI mode) */}
+                  <div className="cli-actions">
+                    <button 
+                      onClick={loadTokenBalances} 
+                      disabled={loadingTokens || !apiKey}
+                      className="cli-action-button"
+                    >
+                      {loadingTokens ? "Loading Balances..." : "Check Balances"}
+                    </button>
+                    
+                    <button 
+                      onClick={checkRewards} 
+                      disabled={loadingRewards || !apiKey}
+                      className="cli-action-button"
+                    >
+                      {loadingRewards ? "Loading Rewards..." : "Check Rewards"}
+                    </button>
+                    
+                    {selectedTokens.length > 0 && (
                       <button 
-                        className="action-button" 
                         onClick={() => setShowSwapForm(true)}
+                        className="cli-action-button swap"
                       >
-                        Swap {selectedTokens.length} Token{selectedTokens.length !== 1 ? 's' : ''}
+                        Swap {selectedTokens.length} Tokens
                       </button>
+                    )}
+                    
+                    {selectedRewards.length > 0 && (
+                      <button 
+                        onClick={claimRewards}
+                        disabled={claimStatus.loading}
+                        className="cli-action-button claim"
+                      >
+                        Claim {selectedRewards.length} Rewards
+                      </button>
+                    )}
+                  </div>
+
+                  {/* CLI Terminals */}
+                  <div className="cli-terminal-layout">
+                    <div className="cli-terminal-container">
+                      <CliTokenList 
+                        tokens={tokens}
+                        totalValueUsd={totalValueUsd}
+                        totalValueNative={totalValueBera}
+                        loading={loadingTokens}
+                        error={tokenError}
+                        selectable={true}
+                        onTokenSelect={handleTokenSelect}
+                      />
                     </div>
-                  )}
+                    
+                    <div className="cli-terminal-container">
+                      <CliRewardsList 
+                        rewards={rewards}
+                        loading={loadingRewards}
+                        error={rewardsError}
+                        onClaimSelected={handleRewardSelect}
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Validator Boosts Terminal */}
+                  <div className="cli-validator-terminal">
+                    <CliValidatorBoosts 
+                      validatorBoosts={validatorBoosts}
+                      loading={loadingBoosts}
+                      error={boostsError}
+                    />
+                  </div>
+                  
+                  {/* Status Messages (CLI Mode) */}
+                  <div className="cli-status-messages">
+                    {swapStatus.loading && (
+                      <div className="cli-status loading">
+                        Processing swap... Please wait.
+                      </div>
+                    )}
+                    
+                    {swapStatus.success && (
+                      <div className="cli-status success">
+                        Swap completed successfully!
+                      </div>
+                    )}
+                    
+                    {swapStatus.error && (
+                      <div className="cli-status error">
+                        Error: {swapStatus.error}
+                      </div>
+                    )}
+                    
+                    {claimStatus.loading && (
+                      <div className="cli-status loading">
+                        Processing claim... Please wait.
+                      </div>
+                    )}
+                    
+                    {claimStatus.success && (
+                      <div className="cli-status success">
+                        Rewards claimed successfully!
+                      </div>
+                    )}
+                    
+                    {claimStatus.error && (
+                      <div className="cli-status error">
+                        Error: {claimStatus.error}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* GUI MODE (Original) */
+                <div className="two-column-layout">
+                  {/* Left Column: Token Balances */}
+                  <div className="column">
+                    <div className="frame">
+                      <div className="frame-header">
+                        <h3 className="frame-title">Token Balances</h3>
+                        <div className="frame-actions">
+                          <button 
+                            className="token-check-button"
+                            onClick={loadTokenBalances} 
+                            disabled={loadingTokens || !apiKey}
+                          >
+                            {loadingTokens ? "Loading..." : "Check Balances"}
+                          </button>
+                          
+                          {selectedTokens.length > 0 && (
+                            <button 
+                              className="action-button" 
+                              onClick={() => setShowSwapForm(true)}
+                            >
+                              Swap {selectedTokens.length}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="token-list-section">
+                        <TokenList 
+                          tokens={tokens}
+                          totalValueUsd={totalValueUsd}
+                          totalValueNative={totalValueBera}
+                          loading={loadingTokens}
+                          error={tokenError}
+                          selectable={true}
+                          onTokenSelect={handleTokenSelect}
+                        />
+                        
+                        {/* Swap Status Messages */}
+                        {swapStatus.loading && (
+                          <div className="swap-status loading">
+                            <div className="loading-spinner"></div>
+                            <p>Processing swap...</p>
+                          </div>
+                        )}
+                        
+                        {swapStatus.success && (
+                          <div className="swap-status success">
+                            <p>Swap completed successfully!</p>
+                          </div>
+                        )}
+                        
+                        {swapStatus.error && (
+                          <div className="swap-status error">
+                            <p>Swap failed: {swapStatus.error}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Right Column: Rewards */}
+                  <div className="column">
+                    <div className="frame">
+                      <div className="frame-header">
+                        <h3 className="frame-title">Claimable Rewards</h3>
+                        <div className="frame-actions">
+                          <button 
+                            className="check-rewards-button"
+                            onClick={checkRewards} 
+                            disabled={loadingRewards || !apiKey}
+                          >
+                            {loadingRewards ? "Loading..." : "Check Rewards"}
+                          </button>
+                          
+                          {selectedRewards.length > 0 && (
+                            <button 
+                              className="action-button" 
+                              onClick={claimRewards}
+                              disabled={claimStatus.loading}
+                            >
+                              Claim {selectedRewards.length}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="rewards-section">
+                        <RewardsList 
+                          rewards={rewards}
+                          loading={loadingRewards}
+                          error={rewardsError}
+                          onClaimSelected={handleRewardSelect}
+                        />
+                        
+                        {/* Claim Status Messages */}
+                        {claimStatus.loading && (
+                          <div className="swap-status loading">
+                            <div className="loading-spinner"></div>
+                            <p>Processing claim...</p>
+                          </div>
+                        )}
+                        
+                        {claimStatus.success && (
+                          <div className="swap-status success">
+                            <p>Rewards claimed successfully!</p>
+                          </div>
+                        )}
+                        
+                        {claimStatus.error && (
+                          <div className="swap-status error">
+                            <p>Claim failed: {claimStatus.error}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
               
-              {/* Swap Status Messages */}
-              {swapStatus.loading && (
-                <div className="swap-status loading">
-                  <div className="loading-spinner"></div>
-                  <p>Processing swap...</p>
-                </div>
-              )}
               
-              {swapStatus.success && (
-                <div className="swap-status success">
-                  <p>Swap completed successfully!</p>
-                </div>
-              )}
-              
-              {swapStatus.error && (
-                <div className="swap-status error">
-                  <p>Swap failed: {swapStatus.error}</p>
-                </div>
-              )}
+              {error && <p style={{ color: "red" }}>{error}</p>}
             </>
           )}
-          
-          {error && <p style={{ color: "red" }}>{error}</p>}
         </div>
       </div>
       

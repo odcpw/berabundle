@@ -137,12 +137,46 @@ class MetadataService {
    */
   async fetchVaults() {
     try {
-      const vaults = await this.fetchFromGitHub('src/vaults/mainnet.json');
+      const vaultsData = await this.fetchFromGitHub('src/vaults/mainnet.json');
       
-      // Create metadata object
+      // Process vaults data - extract just the vaults array
+      let processedVaults = [];
+      
+      if (vaultsData && vaultsData.vaults && Array.isArray(vaultsData.vaults)) {
+        console.log(`Found ${vaultsData.vaults.length} vaults in GitHub data`);
+        
+        // Extract protocols for mapping
+        const protocols = {};
+        if (vaultsData.protocols && Array.isArray(vaultsData.protocols)) {
+          vaultsData.protocols.forEach(protocol => {
+            if (protocol.name) {
+              protocols[protocol.name] = protocol;
+            }
+          });
+          console.log(`Loaded ${Object.keys(protocols).length} protocols from GitHub data`);
+        }
+        
+        // Process each vault and add protocol information
+        processedVaults = vaultsData.vaults.map(vault => {
+          // Get the protocol data if available
+          const protocolData = vault.protocol && protocols[vault.protocol] ? protocols[vault.protocol] : null;
+          
+          return {
+            ...vault,
+            // Add protocol details if available
+            protocolLogo: protocolData ? protocolData.logoURI : null,
+            protocolUrl: protocolData ? protocolData.url : null,
+            protocolDescription: protocolData ? protocolData.description : null
+          };
+        });
+      } else {
+        console.warn("Unexpected vaults data format from GitHub");
+      }
+      
+      // Create metadata object with processed vaults
       const metadata = {
-        data: vaults,
-        count: vaults.length,
+        data: processedVaults,
+        count: processedVaults.length,
         timestamp: Date.now(),
         source: "github"
       };
@@ -165,31 +199,118 @@ class MetadataService {
   }
 
   /**
-   * Fetch validators list from GitHub
+   * Fetch validators list from GitHub or local file
    * @returns {Promise<Object>} Result object with validators data
    */
   async fetchValidators() {
     try {
-      const validators = await this.fetchFromGitHub('src/validators/mainnet.json');
+      // First try GitHub
+      try {
+        const validators = await this.fetchFromGitHub('src/validators/mainnet.json');
+        
+        if (validators && Array.isArray(validators)) {
+          // Create metadata object
+          const metadata = {
+            data: validators,
+            count: validators.length,
+            timestamp: Date.now(),
+            source: "github"
+          };
+          
+          // Store in localStorage
+          this.storeData(STORAGE_KEYS.VALIDATORS, metadata);
+          
+          console.log(`Successfully fetched ${validators.length} validators from GitHub`);
+          
+          return {
+            success: true,
+            validators: metadata,
+            count: metadata.count
+          };
+        }
+      } catch (gitHubError) {
+        console.warn("Could not fetch validators from GitHub:", gitHubError);
+      }
       
-      // Create metadata object
-      const metadata = {
-        data: validators,
-        count: validators.length,
+      // If GitHub fails, try with local fallback
+      console.log("Falling back to local validators.json data");
+      
+      try {
+        // Try to fetch validators.json from the public directory
+        const validatorsFileUrl = process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/validators.json` : '/validators.json';
+        console.log(`Attempting to fetch validators from: ${validatorsFileUrl}`);
+        const localValidatorsData = await fetch(validatorsFileUrl).catch(err => {
+          console.warn(`Could not load validators.json from public folder:`, err);
+          return null;
+        });
+        
+        if (localValidatorsData) {
+          const validators = await localValidatorsData.json();
+          
+          if (validators && Array.isArray(validators)) {
+            // Create metadata object
+            const metadata = {
+              data: validators,
+              count: validators.length,
+              timestamp: Date.now(),
+              source: "local"
+            };
+            
+            // Store in localStorage
+            this.storeData(STORAGE_KEYS.VALIDATORS, metadata);
+            
+            console.log(`Successfully fetched ${validators.length} validators from local file`);
+            
+            return {
+              success: true,
+              validators: metadata,
+              count: metadata.count
+            };
+          }
+        }
+      } catch (localError) {
+        console.warn("Could not fetch validators from local file:", localError);
+      }
+      
+      // If all fetches fail, try to use hardcoded validators
+      console.log("Falling back to hardcoded validators data");
+      
+      // Simplified hardcoded validators data
+      const hardcodedValidators = [
+        {
+          "id": "0xa3539ca28e0fd74d2a3c4c552740be77d6914cad2d8ec16583492cc57e8cfa358c62e31cc9106b1700cc169962855a6f",
+          "name": "L0vd"
+        },
+        {
+          "id": "0x832153bf3e09b9cab14414425a0ebaeb889e21d20872ebb990ed9a6102d7dc7f3017d4689f931a8e96d918bdeb184e1b",
+          "name": "BGTScan"
+        },
+        {
+          "id": "0xa232a81b5e834b817db01d85ee13e36552b48413626287de511b6c89b7b8ff4a448e865713fd21c98f1467a58fe6efe5",
+          "name": "StakeUs (lowest commission)"
+        }
+      ];
+      
+      // Create metadata object for hardcoded validators
+      const hardcodedMetadata = {
+        data: hardcodedValidators,
+        count: hardcodedValidators.length,
         timestamp: Date.now(),
-        source: "github"
+        source: "hardcoded"
       };
       
       // Store in localStorage
-      this.storeData(STORAGE_KEYS.VALIDATORS, metadata);
+      this.storeData(STORAGE_KEYS.VALIDATORS, hardcodedMetadata);
+      
+      console.log(`Using ${hardcodedValidators.length} hardcoded validators`);
       
       return {
         success: true,
-        validators: metadata,
-        count: metadata.count
+        validators: hardcodedMetadata,
+        count: hardcodedMetadata.count
       };
     } catch (error) {
-      console.error("Error fetching validators from GitHub:", error);
+      console.error("Error fetching validators:", error);
       return {
         success: false,
         error: error.message || "Failed to fetch validator data"

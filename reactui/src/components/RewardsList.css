@@ -1,30 +1,26 @@
-.token-list-container {
+.rewards-list-container {
   width: 100%;
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-  background-color: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  padding: 0;
+  border-radius: 6px;
 }
 
-.token-list-header {
+.rewards-list-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
 }
 
-.token-list-title {
+.rewards-list-title {
   font-size: 1.2rem;
   margin: 0;
-  color: cyan;
+  color: #ffc045;
 }
 
 .select-all-button {
-  background-color: rgba(0, 255, 255, 0.2);
-  border: 1px solid rgba(0, 255, 255, 0.4);
-  color: cyan;
+  background-color: rgba(255, 192, 69, 0.2);
+  border: 1px solid rgba(255, 192, 69, 0.4);
+  color: #ffc045;
   padding: 5px 10px;
   border-radius: 4px;
   font-size: 0.8rem;
@@ -33,20 +29,20 @@
 }
 
 .select-all-button:hover {
-  background-color: rgba(0, 255, 255, 0.3);
+  background-color: rgba(255, 192, 69, 0.3);
 }
 
-.token-list {
+.rewards-list {
   width: 100%;
 }
 
-.token-list table {
+.rewards-list table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed; /* Fixed layout to prevent resizing */
 }
 
-.token-list th {
+.rewards-list th {
   text-align: left;
   padding: 12px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -55,32 +51,27 @@
 }
 
 /* Set fixed widths for each column */
-.token-list th.select-column,
-.token-list td.select-column {
+.rewards-list th.select-column,
+.rewards-list td.select-column {
   width: 40px;
 }
 
-.token-list th:nth-child(2),
-.token-list td:nth-child(2) {
-  width: 40%;
+.rewards-list th:nth-child(2),
+.rewards-list td:nth-child(2) {
+  width: 45%;
 }
 
-.token-list th:nth-child(3),
-.token-list td:nth-child(3) {
+.rewards-list th:nth-child(3),
+.rewards-list td:nth-child(3) {
+  width: 25%;
+}
+
+.rewards-list th:nth-child(4),
+.rewards-list td:nth-child(4) {
   width: 20%;
 }
 
-.token-list th:nth-child(4),
-.token-list td:nth-child(4) {
-  width: 15%;
-}
-
-.token-list th:nth-child(5),
-.token-list td:nth-child(5) {
-  width: 15%;
-}
-
-.token-list td {
+.rewards-list td {
   padding: 12px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   white-space: nowrap;
@@ -88,17 +79,17 @@
   text-overflow: ellipsis;
 }
 
-.token-cell {
+.reward-cell {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.token-icon {
+.reward-icon {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background-color: #444;
+  background-color: #997328;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -106,22 +97,22 @@
   color: white;
 }
 
-.token-symbol {
+.reward-name {
   font-weight: bold;
 }
 
-.token-name {
+.reward-source {
   font-size: 0.8rem;
   color: #aaa;
 }
 
-.token-balance {
+.reward-amount {
   font-weight: bold;
 }
 
-.token-value {
+.reward-value {
   color: #aaa;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }
 
 .total-value {
@@ -137,6 +128,17 @@
   justify-content: space-between;
 }
 
+.select-column {
+  width: 40px;
+  text-align: center;
+}
+
+.reward-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
 .loader {
   display: flex;
   flex-direction: column;
@@ -146,8 +148,8 @@
 }
 
 .loader-spinner {
-  border: 3px solid rgba(0, 255, 255, 0.1);
-  border-top: 3px solid cyan;
+  border: 3px solid rgba(255, 192, 69, 0.1);
+  border-top: 3px solid #ffc045;
   border-radius: 50%;
   width: 30px;
   height: 30px;

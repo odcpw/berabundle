@@ -1,0 +1,121 @@
+.cli-terminal {
+  width: 100%;
+  height: 100%;
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Courier New', monospace;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  border: 1px solid #444;
+}
+
+.cli-header {
+  background-color: #333;
+  color: #f0f0f0;
+  padding: 8px 12px;
+  border-bottom: 1px solid #555;
+  font-weight: bold;
+}
+
+.cli-prompt {
+  color: #32cd32; /* lime green */
+  margin-right: 8px;
+}
+
+.cli-content {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  color: #f0f0f0;
+}
+
+.cli-table {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.cli-row {
+  display: flex;
+  border-bottom: 1px dotted #444;
+  padding: 6px 0;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.cli-row:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.cli-row.selected {
+  background-color: rgba(50, 205, 50, 0.1);
+}
+
+.cli-row.native-token {
+  color: #32cd32;
+}
+
+.cli-cell {
+  padding: 2px 8px;
+}
+
+.cli-cell.token-symbol {
+  flex: 1;
+  min-width: 120px;
+  text-align: left;
+}
+
+.cli-cell.token-balance {
+  flex: 1;
+  text-align: right;
+}
+
+.cli-cell.token-price {
+  flex: 1;
+  text-align: right;
+}
+
+.cli-cell.token-value {
+  flex: 1;
+  text-align: right;
+}
+
+.cli-summary {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #444;
+}
+
+.cli-summary-line {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.cli-summary-label {
+  color: #aaa;
+}
+
+.cli-summary-value {
+  font-weight: bold;
+}
+
+.cli-loader {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(50, 205, 50, 0.2);
+  border-radius: 50%;
+  border-top-color: #32cd32;
+  animation: cli-spin 1s linear infinite;
+  margin-top: 10px;
+}
+
+.cli-error {
+  color: #ff6b6b;
+}
+
+@keyframes cli-spin {
+  to { transform: rotate(360deg); }
+}

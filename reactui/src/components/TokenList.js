@@ -123,12 +123,29 @@ function TokenList({
     );
   }
   
-  // If no tokens, show message
+  // If no tokens, show table with empty message
   if (!tokens || tokens.length === 0) {
     return (
       <div className="token-list-container">
-        <div className="no-tokens-message">
-          <p>No tokens found with non-zero balance.</p>
+        <div className="token-list">
+          <table>
+            <thead>
+              <tr>
+                {selectable && <th className="select-column"></th>}
+                <th>Token</th>
+                <th>Balance</th>
+                <th>Price</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="empty-row">
+                <td colSpan={selectable ? 5 : 4} className="empty-message">
+                  No tokens found with non-zero balance.
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     );

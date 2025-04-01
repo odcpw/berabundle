@@ -55,6 +55,26 @@
   box-shadow: none;
 }
 
+.display-mode-toggle {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #f0f0f0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-right: 10px;
+}
+
+.display-mode-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  transform: none;
+  box-shadow: none;
+}
+
 .wallet-connect-button {
   background-color: rgba(0, 255, 255, 0.2);
   color: cyan;
@@ -98,16 +118,71 @@
 .main-content {
   margin-top: 80px;
   padding: 20px;
-  max-width: 1000px;
+  max-width: 1200px;
   width: 100%;
   margin-left: auto;
   margin-right: auto;
+  min-height: calc(100vh - 80px);
 }
 
 .content-wrapper {
   width: 100%;
-  max-width: 800px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.two-column-layout {
+  display: flex;
+  gap: 30px;
+  width: 100%;
+}
+
+.column {
+  flex: 1;
+  min-width: 0; /* Prevents flex items from overflowing */
+  display: flex;
+  flex-direction: column;
+  max-width: calc(50% - 15px); /* Ensure columns don't grow beyond 50% minus half the gap */
+}
+
+.frame {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  flex: 1;
+  min-height: 400px; /* Give a minimum height to frames */
+  overflow: auto;
+}
+
+.frame-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding: 0 10px;
+}
+
+.frame-title {
+  font-size: 1.1rem;
+  color: cyan;
+  margin: 0;
+}
+
+/* Left column title is cyan, right column title is gold */
+.column:first-child .frame-title {
+  color: cyan;
+}
+
+.column:last-child .frame-title {
+  color: #ffc045;
+}
+
+.frame-actions {
+  display: flex;
+  gap: 10px;
 }
 
 h1 {
@@ -232,16 +307,137 @@ button:disabled {
 }
 
 .token-check-button {
-  width: 100%;
-  padding: 12px;
-  font-size: 16px;
+  padding: 10px 15px;
+  font-size: 14px;
   color: #333;
 }
 
-.token-list-section, .metadata-section {
+.check-rewards-button {
+  padding: 10px 15px;
+  font-size: 14px;
+  color: #333;
+  background-color: #e6a92f;
+}
+
+.check-rewards-button:hover {
+  background-color: #ffc045;
+}
+
+.token-list-section, .rewards-section {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+/* CLI Mode Layout */
+.cli-mode-layout {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cli-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.cli-action-button {
+  background-color: #1e1e1e;
+  color: #f0f0f0;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cli-action-button:hover {
+  background-color: #333;
+  transform: none;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+}
+
+.cli-action-button.swap {
+  background-color: rgba(88, 111, 246, 0.2);
+  border-color: rgba(88, 111, 246, 0.4);
+  color: #586ff6;
+}
+
+.cli-action-button.swap:hover {
+  background-color: rgba(88, 111, 246, 0.3);
+}
+
+.cli-action-button.claim {
+  background-color: rgba(255, 192, 69, 0.2);
+  border-color: rgba(255, 192, 69, 0.4);
+  color: #ffc045;
+}
+
+.cli-action-button.claim:hover {
+  background-color: rgba(255, 192, 69, 0.3);
+}
+
+.cli-terminal-layout {
+  display: flex;
+  gap: 20px;
+  width: 100%;
+}
+
+.cli-terminal-container {
+  flex: 1;
+  min-width: 0;
+  max-width: calc(50% - 10px);
+  min-height: 400px;
+}
+
+.cli-validator-terminal {
   width: 100%;
   margin-top: 20px;
-  margin-bottom: 20px;
+  min-height: 200px;
+}
+
+.cli-status-messages {
+  margin-top: 10px;
+}
+
+.cli-status {
+  padding: 10px 15px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+}
+
+.cli-status.loading {
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.cli-status.success {
+  background-color: rgba(50, 205, 50, 0.1);
+  border: 1px solid rgba(50, 205, 50, 0.2);
+  color: #32cd32;
+}
+
+.cli-status.error {
+  background-color: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+}
+
+/* For smaller screens */
+@media (max-width: 900px) {
+  .two-column-layout, .cli-terminal-layout {
+    flex-direction: column;
+  }
+  
+  .cli-terminal-container {
+    max-width: 100%;
+    margin-bottom: 20px;
+  }
 }
 
 /* Swap Button Container */
@@ -285,12 +481,34 @@ button:disabled {
 
 /* Swap Form Overlay */
 .swap-form-overlay {
-  composes: overlay-base;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+  overflow-y: auto;
 }
 
 /* Settings Overlay */
 .settings-overlay {
-  composes: overlay-base;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+  overflow-y: auto;
 }
 
 .settings-panel {

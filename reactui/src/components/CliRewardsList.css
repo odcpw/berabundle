@@ -1,0 +1,202 @@
+.cli-terminal {
+  width: 100%;
+  height: 100%;
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Courier New', monospace;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  border: 1px solid #444;
+}
+
+.cli-header {
+  background-color: #333;
+  color: #f0f0f0;
+  padding: 8px 12px;
+  border-bottom: 1px solid #555;
+  font-weight: bold;
+}
+
+.cli-prompt {
+  color: #ffc045; /* Gold for rewards */
+  margin-right: 8px;
+}
+
+.cli-content {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  color: #f0f0f0;
+}
+
+.cli-reward {
+  margin-bottom: 16px;
+  padding: 8px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.cli-reward:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.cli-reward.selected {
+  background-color: rgba(255, 192, 69, 0.1);
+  border-color: rgba(255, 192, 69, 0.3);
+}
+
+.cli-reward-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.cli-reward-checkbox {
+  margin-right: 10px;
+  color: #ffc045;
+}
+
+.cli-reward-title {
+  font-weight: bold;
+  color: #ffc045;
+}
+
+.cli-reward-description {
+  color: #aaa;
+  margin-bottom: 8px;
+  font-style: italic;
+  padding-left: 20px;
+}
+
+.cli-reward-details {
+  padding-left: 20px;
+  font-size: 0.95em;
+}
+
+.cli-reward-detail {
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  max-width: 400px;
+}
+
+.detail-label {
+  color: #aaa;
+}
+
+.detail-value {
+  font-weight: bold;
+}
+
+.cli-reward-detail.pending .detail-value {
+  color: #ffc045;
+}
+
+.cli-reward-detail.value .detail-value {
+  color: #32cd32;
+}
+
+.cli-reward-detail.boost .detail-value {
+  color: #4e94ff; /* Light blue for boost info */
+}
+
+.cli-reward-summary {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #555;
+  display: flex;
+  justify-content: space-between;
+  max-width: 400px;
+}
+
+.summary-label {
+  color: #aaa;
+}
+
+.summary-value {
+  font-weight: bold;
+  color: #32cd32;
+}
+
+.cli-loader {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 192, 69, 0.2);
+  border-radius: 50%;
+  border-top-color: #ffc045;
+  animation: cli-spin 1s linear infinite;
+  margin-top: 10px;
+}
+
+.cli-error {
+  color: #ff6b6b;
+}
+
+/* Validator Boost styles */
+.cli-section {
+  margin-bottom: 20px;
+}
+
+.cli-section-title {
+  font-weight: bold;
+  color: #4e94ff;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #444;
+  padding-bottom: 4px;
+}
+
+.cli-validator {
+  margin-bottom: 16px;
+  padding: 8px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.cli-validator-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.cli-validator-title {
+  font-weight: bold;
+  color: #4e94ff;
+}
+
+.cli-validator-details {
+  padding-left: 20px;
+  font-size: 0.95em;
+}
+
+.cli-validator-detail {
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  max-width: 400px;
+}
+
+.cli-validator-detail .detail-value {
+  color: #4e94ff;
+}
+
+.cli-validator-detail .detail-value.queued {
+  color: #ffc045;
+  font-style: italic;
+}
+
+.cli-boost-summary {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #555;
+}
+
+@keyframes cli-spin {
+  to { transform: rotate(360deg); }
+}
