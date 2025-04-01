@@ -1,0 +1,254 @@
+.App {
+  text-align: center;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
+.App-header {
+  margin-bottom: 40px;
+  width: 100%;
+}
+
+.header-underline {
+  width: 80%;
+  max-width: 600px;
+  height: 2px;
+  background-color: cyan;
+  margin: 10px auto 20px;
+}
+
+h1 {
+  color: cyan;
+  font-weight: bold;
+  letter-spacing: 2px;
+  margin: 0;
+}
+
+.connection-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 800px;
+}
+
+.stats {
+  width: 100%;
+  max-width: 600px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 10px;
+  text-align: left;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  color: #ccc;
+}
+
+.stat-value {
+  color: white;
+  font-weight: bold;
+}
+
+/* Buttons */
+button {
+  background-color: cyan;
+  color: #282c34;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+button:hover {
+  background-color: #00e6e6;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+button:disabled {
+  background-color: #666;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* API Key Input */
+.api-key-section {
+  width: 100%;
+  max-width: 600px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 20px;
+  text-align: left;
+}
+
+.api-key-input h3 {
+  color: cyan;
+  margin-top: 0;
+}
+
+.input-group {
+  display: flex;
+  margin: 15px 0;
+  width: 100%;
+}
+
+.api-key-field {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #666;
+  border-radius: 4px 0 0 4px;
+  background-color: #333;
+  color: white;
+}
+
+.toggle-visibility {
+  border-radius: 0 4px 4px 0;
+  padding: 0 10px;
+}
+
+.save-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.key-status {
+  margin-top: 15px;
+  padding: 8px;
+  background-color: rgba(0, 255, 0, 0.1);
+  border-radius: 4px;
+}
+
+/* Token Check Section */
+.token-check-section {
+  width: 100%;
+  max-width: 600px;
+  margin: 20px 0;
+}
+
+.token-check-button {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  color: #333;
+}
+
+.token-list-section, .metadata-section {
+  width: 100%;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+/* Swap Button Container */
+.swap-button-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.action-button {
+  background-color: #586ff6;
+  color: white;
+  padding: 10px 20px;
+  font-size: 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.action-button:hover {
+  background-color: #4a5fde;
+}
+
+/* Swap Form Overlay */
+.swap-form-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+/* Swap Status Messages */
+.swap-status {
+  width: 100%;
+  max-width: 600px;
+  padding: 15px;
+  border-radius: 8px;
+  margin: 20px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.swap-status.loading {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.swap-status.success {
+  background-color: rgba(75, 181, 67, 0.2);
+  border: 1px solid rgba(75, 181, 67, 0.4);
+}
+
+.swap-status.error {
+  background-color: rgba(255, 87, 87, 0.2);
+  border: 1px solid rgba(255, 87, 87, 0.4);
+}
+
+.loading-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: cyan;
+  animation: spin 1s ease-in-out infinite;
+  margin-bottom: 10px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .App {
+    padding: 10px;
+  }
+  
+  .connection-status {
+    padding: 0 10px;
+  }
+  
+  h1 {
+    font-size: 1.8rem;
+  }
+  
+  .stats, .api-key-section {
+    padding: 15px;
+  }
+}

@@ -1,0 +1,151 @@
+.metadata-manager {
+  width: 100%;
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 20px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  text-align: left;
+}
+
+.metadata-manager h3 {
+  color: cyan;
+  margin-top: 0;
+}
+
+.metadata-card {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.metadata-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.metadata-title {
+  font-size: 1.1rem;
+  margin: 0;
+  font-weight: bold;
+}
+
+.metadata-content {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  padding: 15px;
+  margin-bottom: 10px;
+}
+
+.metadata-stats {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.metadata-stat {
+  background-color: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+
+.metadata-stat-label {
+  font-size: 0.8rem;
+  color: #aaa;
+  margin-bottom: 5px;
+}
+
+.metadata-stat-value {
+  font-weight: bold;
+}
+
+.metadata-badge {
+  font-size: 0.7rem;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+  margin-left: 5px;
+}
+
+.metadata-badge.cache {
+  background-color: #2d3748;
+  color: #a0aec0;
+}
+
+.metadata-badge.fresh {
+  background-color: #38a169;
+  color: white;
+}
+
+.metadata-badge.expired {
+  background-color: #e53e3e;
+  color: white;
+}
+
+.metadata-badge.pending {
+  background-color: #d69e2e;
+  color: white;
+}
+
+.metadata-status-icon {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-success {
+  background-color: #38a169;
+}
+
+.status-error {
+  background-color: #e53e3e;
+}
+
+.status-pending {
+  background-color: #d69e2e;
+}
+
+.metadata-controls {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+
+.last-update {
+  margin-top: 15px;
+  font-size: 0.8rem;
+  color: #aaa;
+  text-align: center;
+}
+
+.metadata-error {
+  color: #fc8181;
+  background-color: rgba(229, 62, 62, 0.1);
+  padding: 10px;
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.metadata-loading {
+  text-align: center;
+  padding: 15px;
+}
+
+.loading-spinner {
+  border: 3px solid rgba(0, 255, 255, 0.1);
+  border-top: 3px solid cyan;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

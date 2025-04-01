@@ -1,0 +1,220 @@
+.swap-form {
+  background-color: #2c2c2c;
+  border-radius: 12px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  margin: 20px auto;
+  overflow: hidden;
+}
+
+.swap-form-header {
+  background-color: #252525;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.swap-form-header h2 {
+  margin: 0;
+  color: #f0f0f0;
+  font-size: 1.4rem;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+}
+
+.close-button:hover {
+  color: #f0f0f0;
+}
+
+.swap-form-content {
+  padding: 20px;
+}
+
+.swap-instruction {
+  color: #aaa;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+}
+
+.swap-tokens-list {
+  margin-bottom: 20px;
+}
+
+.swap-token-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.swap-token-row:last-child {
+  border-bottom: none;
+}
+
+.token-info {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.token-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: white;
+  margin-right: 10px;
+}
+
+.token-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.token-symbol {
+  font-weight: bold;
+  color: white;
+}
+
+.token-balance {
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.amount-input-container {
+  display: flex;
+  align-items: center;
+  margin: 0 10px;
+}
+
+.amount-input {
+  background-color: #3a3a3a;
+  border: 1px solid #555;
+  color: white;
+  border-radius: 4px;
+  padding: 8px;
+  width: 120px;
+  font-size: 1rem;
+  text-align: right;
+  outline: none;
+}
+
+.amount-input.valid {
+  border-color: #4caf50;
+}
+
+.amount-input:focus {
+  border-color: #707f94;
+}
+
+.max-button {
+  background-color: #555;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-left: 5px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: bold;
+}
+
+.max-button:hover {
+  background-color: #707f94;
+}
+
+.token-value {
+  width: 100px;
+  text-align: right;
+  color: #aaa;
+  font-size: 0.9rem;
+}
+
+.swap-error {
+  background-color: rgba(255, 87, 87, 0.1);
+  border: 1px solid rgba(255, 87, 87, 0.3);
+  border-radius: 4px;
+  padding: 10px;
+  color: #ff5757;
+  margin: 15px 0;
+  font-size: 0.9rem;
+}
+
+.swap-summary {
+  background-color: #3a3a3a;
+  border-radius: 8px;
+  padding: 15px;
+  margin: 20px 0;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+
+.summary-row:last-child {
+  margin-bottom: 0;
+  padding-top: 8px;
+  border-top: 1px solid #555;
+  font-weight: bold;
+}
+
+.swap-actions {
+  display: flex;
+  justify-content: space-between;
+}
+
+.cancel-button {
+  background-color: transparent;
+  border: 1px solid #555;
+  color: #ddd;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.cancel-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.swap-button {
+  background-color: #586ff6;
+  border: none;
+  color: white;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.swap-button:hover:not(:disabled) {
+  background-color: #4a5fde;
+}
+
+.swap-button:disabled {
+  background-color: #434b75;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
