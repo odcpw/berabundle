@@ -16,6 +16,7 @@ function App() {
   const [balance, setBalance] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
+  const [showWalletDetails, setShowWalletDetails] = useState(false);
   
   // Token state
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('oogaboogaApiKey') || '');
@@ -30,6 +31,9 @@ function App() {
   const [showSwapForm, setShowSwapForm] = useState(false);
   const [beraToken, setBeraToken] = useState(null);
   const [swapStatus, setSwapStatus] = useState({ loading: false, success: false, error: null });
+  
+  // Settings state
+  const [showSettings, setShowSettings] = useState(false);
   
   // Network details based on Berachain
   const networkDetails = {
@@ -428,146 +432,215 @@ function App() {
     }
   }
 
+  // Toggle wallet details tooltip
+  const toggleWalletDetails = () => {
+    setShowWalletDetails(!showWalletDetails);
+  };
+  
+  // Toggle settings panel
+  const toggleSettings = () => {
+    setShowSettings(!showSettings);
+  };
+
   return (
     <div className="App">
       <header className="App-header">
-        <h1>BERABUNDLE</h1>
-        <div className="header-underline"></div>
-      </header>
-
-      <div className="connection-status">
-        {!account ? (
-          <>
-            <p>Connect your wallet to get started</p>
+        <div className="header-logo">
+          <h1>BERABUNDLE</h1>
+        </div>
+        
+        <div className="header-actions">
+          {account && (
             <button 
+              className="settings-button" 
+              onClick={toggleSettings}
+              title="Settings"
+            >
+              ⚙️
+            </button>
+          )}
+          
+          {!account ? (
+            <button 
+              className={`wallet-connect-button ${connecting ? 'connecting' : ''}`}
               onClick={connectWallet} 
               disabled={connecting}
             >
               {connecting ? "Connecting..." : "Connect Wallet"}
             </button>
-            
-            <div className="api-key-section">
-              <ApiKeyInput 
-                onSave={handleSaveApiKey}
-                savedKey={apiKey}
-              />
+          ) : (
+            <button 
+              className="wallet-connect-button connected"
+              onClick={toggleWalletDetails}
+            >
+              <span className="wallet-address">
+                {`${account.substring(0, 6)}...${account.substring(account.length - 4)}`}
+              </span>
+              {showWalletDetails ? "▲" : "▼"}
+            </button>
+          )}
+        </div>
+        
+        {/* Wallet Details Tooltip */}
+        {account && showWalletDetails && (
+          <div className="stats-tooltip">
+            <div className="stat-row">
+              <span className="stat-label">Network:</span>
+              <span className="stat-value">
+                {chainId === 9000 ? "Berachain Artio" : `Chain ID: ${chainId}`}
+              </span>
             </div>
-          </>
-        ) : (
-          <>
-            <p>Connected to {chainId === 9000 ? "Berachain Artio" : `Chain ID: ${chainId}`}</p>
+            
+            <div className="stat-row">
+              <span className="stat-label">Address:</span>
+              <span className="stat-value">
+                {`${account.substring(0, 6)}...${account.substring(account.length - 4)}`}
+              </span>
+            </div>
+            
+            <div className="stat-row">
+              <span className="stat-label">Balance:</span>
+              <span className="stat-value">
+                {balance ? `${parseFloat(balance).toFixed(4)} ${networkDetails.currencySymbol}` : "Loading..."}
+              </span>
+            </div>
             
             {chainId !== 9000 && (
-              <button onClick={switchToBerachain}>Switch to Berachain</button>
-            )}
-            
-            <div className="stats">
-              <div className="stat-row">
-                <span className="stat-label">Account:</span>
-                <span className="stat-value">
-                  {`${account.substring(0, 6)}...${account.substring(account.length - 4)}`}
-                </span>
-              </div>
-              
-              <div className="stat-row">
-                <span className="stat-label">Balance:</span>
-                <span className="stat-value">
-                  {balance ? `${parseFloat(balance).toFixed(4)} ${networkDetails.currencySymbol}` : "Loading..."}
-                </span>
-              </div>
-            </div>
-            
-            {/* API Key Input */}
-            <div className="api-key-section">
-              <ApiKeyInput 
-                onSave={handleSaveApiKey}
-                savedKey={apiKey}
-              />
-            </div>
-            
-            {/* Token Balance Check Button */}
-            <div className="token-check-section">
               <button 
-                onClick={loadTokenBalances} 
-                disabled={loadingTokens || !apiKey}
-                className="token-check-button"
+                onClick={switchToBerachain}
+                style={{ width: '100%', marginTop: '10px', fontSize: '12px' }}
               >
-                {loadingTokens ? "Loading Tokens..." : "Check Token Balances"}
+                Switch to Berachain
               </button>
-            </div>
-            
-            {/* Token List */}
-            {(tokens.length > 0 || loadingTokens || tokenError) && (
-              <div className="token-list-section">
-                <TokenList 
-                  tokens={tokens}
-                  totalValueUsd={totalValueUsd}
-                  totalValueNative={totalValueBera}
-                  loading={loadingTokens}
-                  error={tokenError}
-                  selectable={true}
-                  onTokenSelect={handleTokenSelect}
-                />
-                
-                {/* Swap button below the token list if tokens are selected */}
-                {selectedTokens.length > 0 && (
-                  <div className="swap-button-container">
-                    <button 
-                      className="action-button" 
-                      onClick={() => setShowSwapForm(true)}
-                    >
-                      Swap {selectedTokens.length} Token{selectedTokens.length !== 1 ? 's' : ''}
-                    </button>
-                  </div>
-                )}
-              </div>
             )}
             
-            {/* Swap Form (modal) */}
-            {showSwapForm && (
-              <div className="swap-form-overlay">
-                <SwapForm 
-                  selectedTokens={selectedTokens}
-                  beraToken={beraToken}
-                  onClose={handleCloseSwapForm}
-                  onSwap={handleSwap}
-                />
-              </div>
-            )}
-            
-            {/* Swap Status Messages */}
-            {swapStatus.loading && (
-              <div className="swap-status loading">
-                <div className="loading-spinner"></div>
-                <p>Processing swap...</p>
-              </div>
-            )}
-            
-            {swapStatus.success && (
-              <div className="swap-status success">
-                <p>Swap completed successfully!</p>
-              </div>
-            )}
-            
-            {swapStatus.error && (
-              <div className="swap-status error">
-                <p>Swap failed: {swapStatus.error}</p>
-              </div>
-            )}
-            
-            {/* Metadata Manager */}
-            <div className="metadata-section">
-              <MetadataManager />
-            </div>
-            
-            <button onClick={disconnectWallet} style={{ marginTop: "20px" }}>
+            <button 
+              onClick={disconnectWallet} 
+              style={{ width: '100%', marginTop: '10px', fontSize: '12px' }}
+            >
               Disconnect
             </button>
-          </>
+          </div>
         )}
-        
-        {error && <p style={{ color: "red" }}>{error}</p>}
+      </header>
+
+      <div className="main-content">
+        <div className="content-wrapper">
+          {!account ? (
+            <div className="welcome-message">
+              <h2>Welcome to BeraBundle</h2>
+              <p>Connect your wallet to get started with token swaps and claims</p>
+            </div>
+          ) : (
+            <>
+              {/* Token Balance Check Button */}
+              <div className="token-check-section">
+                <button 
+                  onClick={loadTokenBalances} 
+                  disabled={loadingTokens || !apiKey}
+                  className="token-check-button"
+                >
+                  {loadingTokens ? "Loading Tokens..." : "Check Token Balances"}
+                </button>
+              </div>
+              
+              {/* Token List */}
+              {(tokens.length > 0 || loadingTokens || tokenError) && (
+                <div className="token-list-section">
+                  <TokenList 
+                    tokens={tokens}
+                    totalValueUsd={totalValueUsd}
+                    totalValueNative={totalValueBera}
+                    loading={loadingTokens}
+                    error={tokenError}
+                    selectable={true}
+                    onTokenSelect={handleTokenSelect}
+                  />
+                  
+                  {/* Swap button below the token list if tokens are selected */}
+                  {selectedTokens.length > 0 && (
+                    <div className="swap-button-container">
+                      <button 
+                        className="action-button" 
+                        onClick={() => setShowSwapForm(true)}
+                      >
+                        Swap {selectedTokens.length} Token{selectedTokens.length !== 1 ? 's' : ''}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Swap Status Messages */}
+              {swapStatus.loading && (
+                <div className="swap-status loading">
+                  <div className="loading-spinner"></div>
+                  <p>Processing swap...</p>
+                </div>
+              )}
+              
+              {swapStatus.success && (
+                <div className="swap-status success">
+                  <p>Swap completed successfully!</p>
+                </div>
+              )}
+              
+              {swapStatus.error && (
+                <div className="swap-status error">
+                  <p>Swap failed: {swapStatus.error}</p>
+                </div>
+              )}
+            </>
+          )}
+          
+          {error && <p style={{ color: "red" }}>{error}</p>}
+        </div>
       </div>
+      
+      {/* Swap Form (modal) */}
+      {showSwapForm && (
+        <div className="swap-form-overlay">
+          <SwapForm 
+            selectedTokens={selectedTokens}
+            beraToken={beraToken}
+            onClose={handleCloseSwapForm}
+            onSwap={handleSwap}
+          />
+        </div>
+      )}
+      
+      {/* Settings Panel */}
+      {showSettings && (
+        <div className="settings-overlay">
+          <div className="settings-panel">
+            <div className="settings-header">
+              <h2>Settings</h2>
+              <button className="close-button" onClick={toggleSettings}>&times;</button>
+            </div>
+            
+            <div className="settings-content">
+              {/* API Key Section */}
+              <div className="settings-section">
+                <h3>API Key</h3>
+                <div className="settings-section-content">
+                  <ApiKeyInput 
+                    onSave={handleSaveApiKey}
+                    savedKey={apiKey}
+                  />
+                </div>
+              </div>
+              
+              {/* Metadata Section */}
+              <div className="settings-section">
+                <h3>Metadata Management</h3>
+                <div className="settings-section-content">
+                  <MetadataManager />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
