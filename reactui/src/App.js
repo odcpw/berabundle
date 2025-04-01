@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import './App.css';
-import TokenList from './components/TokenList';
-import RewardsList from './components/RewardsList';
 import CliTokenList from './components/CliTokenList';
 import CliRewardsList from './components/CliRewardsList';
 import CliValidatorBoosts from './components/CliValidatorBoosts';
@@ -52,11 +50,8 @@ function App() {
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
   
-  // Display mode state (true = CLI mode, false = GUI mode)
-  const [cliMode, setCliMode] = useState(() => {
-    const savedMode = localStorage.getItem('berabundleDisplayMode');
-    return savedMode === 'cli';
-  });
+  // Always use CLI mode - GUI mode has been removed
+  const cliMode = true;
   
   // Network details based on Berachain
   const networkDetails = {
@@ -589,12 +584,7 @@ function App() {
     setShowSettings(!showSettings);
   };
   
-  // Toggle display mode between CLI and GUI
-  const toggleDisplayMode = () => {
-    const newMode = !cliMode;
-    setCliMode(newMode);
-    localStorage.setItem('berabundleDisplayMode', newMode ? 'cli' : 'gui');
-  };
+  // No toggle function needed as CLI is the only mode now
 
   return (
     <div className="App">
@@ -606,14 +596,6 @@ function App() {
         <div className="header-actions">
           {account && (
             <>
-              <button 
-                className="display-mode-toggle" 
-                onClick={toggleDisplayMode}
-                title={cliMode ? "Switch to GUI Mode" : "Switch to CLI Mode"}
-              >
-                {cliMode ? "GUI" : "CLI"}
-              </button>
-              
               <button 
                 className="settings-button" 
                 onClick={toggleSettings}
@@ -697,240 +679,118 @@ function App() {
             </div>
           ) : (
             <>
-              {/* CLI MODE */}
-              {cliMode ? (
-                <div className="cli-mode-layout">
-                  {/* Action Buttons (in CLI mode) */}
-                  <div className="cli-actions">
-                    <button 
-                      onClick={loadTokenBalances} 
-                      disabled={loadingTokens || !apiKey}
-                      className="cli-action-button"
-                    >
-                      {loadingTokens ? "Loading Balances..." : "Check Balances"}
-                    </button>
-                    
-                    <button 
-                      onClick={checkRewards} 
-                      disabled={loadingRewards || !apiKey}
-                      className="cli-action-button"
-                    >
-                      {loadingRewards ? "Loading Rewards..." : "Check Rewards"}
-                    </button>
-                    
-                    {selectedTokens.length > 0 && (
-                      <button 
-                        onClick={() => setShowSwapForm(true)}
-                        className="cli-action-button swap"
-                      >
-                        Swap {selectedTokens.length} Tokens
-                      </button>
-                    )}
-                    
-                    {selectedRewards.length > 0 && (
-                      <button 
-                        onClick={claimRewards}
-                        disabled={claimStatus.loading}
-                        className="cli-action-button claim"
-                      >
-                        Claim {selectedRewards.length} Rewards
-                      </button>
-                    )}
-                  </div>
-
-                  {/* CLI Terminals */}
-                  <div className="cli-terminal-layout">
-                    <div className="cli-terminal-container">
-                      <CliTokenList 
-                        tokens={tokens}
-                        totalValueUsd={totalValueUsd}
-                        totalValueNative={totalValueBera}
-                        loading={loadingTokens}
-                        error={tokenError}
-                        selectable={true}
-                        onTokenSelect={handleTokenSelect}
-                      />
-                    </div>
-                    
-                    <div className="cli-terminal-container">
-                      <CliRewardsList 
-                        rewards={rewards}
-                        loading={loadingRewards}
-                        error={rewardsError}
-                        onClaimSelected={handleRewardSelect}
-                      />
-                    </div>
-                  </div>
+              {/* CLI Mode Only */}
+              <div className="cli-mode-layout">
+                {/* Action Buttons */}
+                <div className="cli-actions">
+                  <button 
+                    onClick={loadTokenBalances} 
+                    disabled={loadingTokens || !apiKey}
+                    className="cli-action-button"
+                  >
+                    {loadingTokens ? "Loading Balances..." : "Check Balances"}
+                  </button>
                   
-                  {/* Validator Boosts Terminal */}
-                  <div className="cli-validator-terminal">
-                    <CliValidatorBoosts 
-                      validatorBoosts={validatorBoosts}
-                      loading={loadingBoosts}
-                      error={boostsError}
+                  <button 
+                    onClick={checkRewards} 
+                    disabled={loadingRewards || !apiKey}
+                    className="cli-action-button"
+                  >
+                    {loadingRewards ? "Loading Rewards..." : "Check Rewards"}
+                  </button>
+                  
+                  {selectedTokens.length > 0 && (
+                    <button 
+                      onClick={() => setShowSwapForm(true)}
+                      className="cli-action-button swap"
+                    >
+                      Swap {selectedTokens.length} Tokens
+                    </button>
+                  )}
+                  
+                  {selectedRewards.length > 0 && (
+                    <button 
+                      onClick={claimRewards}
+                      disabled={claimStatus.loading}
+                      className="cli-action-button claim"
+                    >
+                      Claim {selectedRewards.length} Rewards
+                    </button>
+                  )}
+                </div>
+
+                {/* CLI Terminals */}
+                <div className="cli-terminal-layout">
+                  <div className="cli-terminal-container">
+                    <CliTokenList 
+                      tokens={tokens}
+                      totalValueUsd={totalValueUsd}
+                      totalValueNative={totalValueBera}
+                      loading={loadingTokens}
+                      error={tokenError}
+                      selectable={true}
+                      onTokenSelect={handleTokenSelect}
                     />
                   </div>
                   
-                  {/* Status Messages (CLI Mode) */}
-                  <div className="cli-status-messages">
-                    {swapStatus.loading && (
-                      <div className="cli-status loading">
-                        Processing swap... Please wait.
-                      </div>
-                    )}
-                    
-                    {swapStatus.success && (
-                      <div className="cli-status success">
-                        Swap completed successfully!
-                      </div>
-                    )}
-                    
-                    {swapStatus.error && (
-                      <div className="cli-status error">
-                        Error: {swapStatus.error}
-                      </div>
-                    )}
-                    
-                    {claimStatus.loading && (
-                      <div className="cli-status loading">
-                        Processing claim... Please wait.
-                      </div>
-                    )}
-                    
-                    {claimStatus.success && (
-                      <div className="cli-status success">
-                        Rewards claimed successfully!
-                      </div>
-                    )}
-                    
-                    {claimStatus.error && (
-                      <div className="cli-status error">
-                        Error: {claimStatus.error}
-                      </div>
-                    )}
+                  <div className="cli-terminal-container">
+                    <CliRewardsList 
+                      rewards={rewards}
+                      loading={loadingRewards}
+                      error={rewardsError}
+                      onClaimSelected={handleRewardSelect}
+                    />
                   </div>
                 </div>
-              ) : (
-                /* GUI MODE (Original) */
-                <div className="two-column-layout">
-                  {/* Left Column: Token Balances */}
-                  <div className="column">
-                    <div className="frame">
-                      <div className="frame-header">
-                        <h3 className="frame-title">Token Balances</h3>
-                        <div className="frame-actions">
-                          <button 
-                            className="token-check-button"
-                            onClick={loadTokenBalances} 
-                            disabled={loadingTokens || !apiKey}
-                          >
-                            {loadingTokens ? "Loading..." : "Check Balances"}
-                          </button>
-                          
-                          {selectedTokens.length > 0 && (
-                            <button 
-                              className="action-button" 
-                              onClick={() => setShowSwapForm(true)}
-                            >
-                              Swap {selectedTokens.length}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="token-list-section">
-                        <TokenList 
-                          tokens={tokens}
-                          totalValueUsd={totalValueUsd}
-                          totalValueNative={totalValueBera}
-                          loading={loadingTokens}
-                          error={tokenError}
-                          selectable={true}
-                          onTokenSelect={handleTokenSelect}
-                        />
-                        
-                        {/* Swap Status Messages */}
-                        {swapStatus.loading && (
-                          <div className="swap-status loading">
-                            <div className="loading-spinner"></div>
-                            <p>Processing swap...</p>
-                          </div>
-                        )}
-                        
-                        {swapStatus.success && (
-                          <div className="swap-status success">
-                            <p>Swap completed successfully!</p>
-                          </div>
-                        )}
-                        
-                        {swapStatus.error && (
-                          <div className="swap-status error">
-                            <p>Swap failed: {swapStatus.error}</p>
-                          </div>
-                        )}
-                      </div>
+                
+                {/* Validator Boosts Terminal */}
+                <div className="cli-validator-terminal">
+                  <CliValidatorBoosts 
+                    validatorBoosts={validatorBoosts}
+                    loading={loadingBoosts}
+                    error={boostsError}
+                  />
+                </div>
+                
+                {/* Status Messages */}
+                <div className="cli-status-messages">
+                  {swapStatus.loading && (
+                    <div className="cli-status loading">
+                      Processing swap... Please wait.
                     </div>
-                  </div>
+                  )}
                   
-                  {/* Right Column: Rewards */}
-                  <div className="column">
-                    <div className="frame">
-                      <div className="frame-header">
-                        <h3 className="frame-title">Claimable Rewards</h3>
-                        <div className="frame-actions">
-                          <button 
-                            className="check-rewards-button"
-                            onClick={checkRewards} 
-                            disabled={loadingRewards || !apiKey}
-                          >
-                            {loadingRewards ? "Loading..." : "Check Rewards"}
-                          </button>
-                          
-                          {selectedRewards.length > 0 && (
-                            <button 
-                              className="action-button" 
-                              onClick={claimRewards}
-                              disabled={claimStatus.loading}
-                            >
-                              Claim {selectedRewards.length}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="rewards-section">
-                        <RewardsList 
-                          rewards={rewards}
-                          loading={loadingRewards}
-                          error={rewardsError}
-                          onClaimSelected={handleRewardSelect}
-                        />
-                        
-                        {/* Claim Status Messages */}
-                        {claimStatus.loading && (
-                          <div className="swap-status loading">
-                            <div className="loading-spinner"></div>
-                            <p>Processing claim...</p>
-                          </div>
-                        )}
-                        
-                        {claimStatus.success && (
-                          <div className="swap-status success">
-                            <p>Rewards claimed successfully!</p>
-                          </div>
-                        )}
-                        
-                        {claimStatus.error && (
-                          <div className="swap-status error">
-                            <p>Claim failed: {claimStatus.error}</p>
-                          </div>
-                        )}
-                      </div>
+                  {swapStatus.success && (
+                    <div className="cli-status success">
+                      Swap completed successfully!
                     </div>
-                  </div>
+                  )}
+                  
+                  {swapStatus.error && (
+                    <div className="cli-status error">
+                      Error: {swapStatus.error}
+                    </div>
+                  )}
+                  
+                  {claimStatus.loading && (
+                    <div className="cli-status loading">
+                      Processing claim... Please wait.
+                    </div>
+                  )}
+                  
+                  {claimStatus.success && (
+                    <div className="cli-status success">
+                      Rewards claimed successfully!
+                    </div>
+                  )}
+                  
+                  {claimStatus.error && (
+                    <div className="cli-status error">
+                      Error: {claimStatus.error}
+                    </div>
+                  )}
                 </div>
-              )}
-              
+              </div>
               
               {error && <p style={{ color: "red" }}>{error}</p>}
             </>
