@@ -72,31 +72,22 @@ function ClaimSummaryOverlay({
             {parseFloat(totalBGT) > 0 && (
               <div className="cli-row selected">
                 <div className="cli-cell token-symbol">BGT</div>
-                <div className="cli-cell token-value">{totalBGT}</div>
+                <div className="cli-cell token-value" style={{ textAlign: 'right' }}>{totalBGT}</div>
               </div>
             )}
             
             {parseFloat(totalHONEY) > 0 && (
               <div className="cli-row selected">
                 <div className="cli-cell token-symbol">HONEY</div>
-                <div className="cli-cell token-value">{totalHONEY}</div>
+                <div className="cli-cell token-value" style={{ textAlign: 'right' }}>{totalHONEY}</div>
               </div>
             )}
           </div>
           
-          <div style={{ marginTop: '15px', color: '#aaa', fontSize: '0.9rem' }}>
-            <span style={{ marginRight: '10px' }}>From:</span>
-            {rewardSources.map((source, index) => (
-              <div key={index} style={{ marginTop: '4px', paddingLeft: '20px', color: '#ddd' }}>
-                - {source}
-              </div>
-            ))}
-          </div>
-          
           {hasBGT && hasValidatorPreferences && (
             <div style={{ marginTop: '25px', borderTop: '1px solid #333', paddingTop: '15px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div style={{ color: '#ffc045', fontSize: '1rem', fontWeight: 'bold' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '15px' }}>
+                <div style={{ color: '#ffc045', fontSize: '1rem', fontWeight: 'bold', marginRight: '15px' }}>
                   # Redelegation Plan
                 </div>
                 <button 
@@ -108,12 +99,8 @@ function ClaimSummaryOverlay({
                 </button>
               </div>
               
-              <div style={{ color: '#aaa', marginBottom: '12px', fontSize: '0.9rem' }}>
-                Your BGT rewards will be automatically redelegated to these validators:
-              </div>
-              
               <div className="cli-table" style={{ border: '1px solid #333', borderRadius: '4px', overflow: 'hidden' }}>
-                <div className="cli-row header-row" style={{ color: '#888', fontSize: '0.85rem', borderBottom: '1px solid #333', padding: '4px 12px' }}>
+                <div className="cli-row header-row" style={{ color: '#888', fontSize: '0.85rem', borderBottom: '1px solid #333', padding: '4px 12px', marginBottom: '0' }}>
                   <div className="cli-cell" style={{ width: '50%' }}>VALIDATOR</div>
                   <div className="cli-cell" style={{ width: '20%', textAlign: 'center' }}>PERCENT</div>
                   <div className="cli-cell" style={{ width: '30%', textAlign: 'right' }}>AMOUNT</div>
@@ -125,14 +112,14 @@ function ClaimSummaryOverlay({
                   
                   return (
                     <div key={validator.pubkey} className="cli-row">
-                      <div className="cli-cell">
+                      <div className="cli-cell" style={{ width: '50%' }}>
                         <div style={{ fontWeight: 'bold' }}>{validator.name}</div>
                         <div style={{ fontSize: '0.8rem', color: '#999' }}>{validator.pubkey.substring(0, 8)}...</div>
                       </div>
-                      <div className="cli-cell" style={{ textAlign: 'center', color: '#ffc045' }}>
+                      <div className="cli-cell" style={{ width: '20%', textAlign: 'center', color: '#ffc045' }}>
                         {allocation}%
                       </div>
-                      <div className="cli-cell" style={{ textAlign: 'right' }}>
+                      <div className="cli-cell" style={{ width: '30%', textAlign: 'right' }}>
                         {amount} BGT
                       </div>
                     </div>
