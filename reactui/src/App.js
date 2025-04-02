@@ -438,8 +438,8 @@ function App() {
   };
 
   // Execute token swap
-  const handleSwap = async (swapData, totalValueUsd, estimatedBera) => {
-    if (!account || !provider || swapData.length === 0) return;
+  const handleSwap = async (swapData, totalValueUsd, estimatedBera, bundleMethod = 'individual') => {
+    if (!account || !provider || !signer || swapData.length === 0) return;
     
     setSwapStatus({
       loading: true,
@@ -448,19 +448,45 @@ function App() {
     });
     
     try {
-      // In a real implementation, this would connect to the berabundle swap function
-      // For now, we'll just simulate a successful swap
+      console.log(`Executing swap with method: ${bundleMethod}`);
       console.log("Swap data:", swapData);
       console.log("Total value:", totalValueUsd);
       console.log("Estimated BERA:", estimatedBera);
       
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Create a swap bundle using the TokenBridge
+      const bundle = await tokenBridge.createSwapBundle(account, swapData);
+      
+      if (bundle.error) {
+        throw new Error(`Failed to create swap bundle: ${bundle.error}`);
+      }
+      
+      console.log("Created swap bundle:", bundle);
+      console.log(`Bundle contains ${bundle.approvalTxs.length} approvals and ${bundle.swapTxs.length} swaps`);
+      
+      let swapResult;
+      
+      if (bundleMethod === 'berabundler') {
+        // Use Berabundler contract
+        console.log("Executing swap through Berabundler contract...");
+        swapResult = await tokenBridge.executeSwapBundle(bundle);
+      } else {
+        // Fallback to individual transaction execution
+        console.log("Executing swap transactions individually...");
+        // This would be implemented in a real application
+        throw new Error("Individual transaction execution not implemented");
+      }
+      
+      if (!swapResult.success) {
+        throw new Error(swapResult.error || "Swap execution failed");
+      }
+      
+      console.log("Swap successful:", swapResult);
       
       // Update swap status
       setSwapStatus({
         loading: false,
         success: true,
+        hash: swapResult.hash,
         error: null
       });
       
@@ -471,7 +497,7 @@ function App() {
       // Refresh token balances after swap
       setTimeout(() => {
         loadTokenBalances();
-      }, 1000);
+      }, 2000);
       
     } catch (err) {
       console.error("Swap error:", err);

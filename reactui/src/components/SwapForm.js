@@ -126,7 +126,8 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
         valueUsd: swapAmounts[token.address].valueUsd
       }));
 
-    onSwap(swapData, totalValueUsd, estimatedBera);
+    // Set bundleMethod to use Berabundler contract
+    onSwap(swapData, totalValueUsd, estimatedBera, 'berabundler');
   };
 
   // Filter out native BERA tokens
