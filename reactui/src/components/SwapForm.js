@@ -17,7 +17,7 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
   const [isValid, setIsValid] = useState(false);
   const [error, setError] = useState('');
 
-  // Initialize swap amounts
+  // Initialize swap amounts with MAX by default
   useEffect(() => {
     if (selectedTokens && selectedTokens.length > 0) {
       const initialAmounts = {};
@@ -27,13 +27,19 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
         !(token.isNative || token.address === 'native' || token.symbol === 'BERA')
       );
       
+      // Set all tokens to MAX by default
       validTokens.forEach(token => {
+        const amount = token.balance;
+        const numericAmount = parseFloat(amount);
+        const valueUsd = token.priceUsd ? numericAmount * token.priceUsd : 0;
+        
         initialAmounts[token.address] = {
-          amount: '',
-          valueUsd: 0,
-          isValid: false
+          amount,
+          valueUsd,
+          isValid: true
         };
       });
+      
       setSwapAmounts(initialAmounts);
     }
   }, [selectedTokens]);
@@ -93,9 +99,15 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
     }
   };
 
-  // Handle max button click
-  const handleMaxClick = (token) => {
-    handleAmountChange(token, token.balance);
+  // Handle percentage selection
+  const handlePercentClick = (token, percentage) => {
+    if (percentage === 0) {
+      handleAmountChange(token, '0');
+      return;
+    }
+    
+    const amount = (parseFloat(token.balance) * (percentage / 100)).toFixed(2);
+    handleAmountChange(token, amount);
   };
 
   // Handle swap button click
@@ -153,78 +165,80 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
       </div>
 
       <div className="cli-overlay-content">
-        <div className="swap-instruction"># Enter amount for each token you want to swap</div>
+        <div className="swap-instruction" style={{ marginBottom: '12px', color: '#aaa' }}>
+          # Enter amount for each token you want to swap
+        </div>
 
-        <div className="swap-tokens-list">
+        <div className="cli-table">
+          {/* Table header row to match main interface */}
+          <div className="cli-row header-row" style={{ color: '#888', fontSize: '0.85rem', borderBottom: '1px solid #333', padding: '4px 12px', marginBottom: '8px' }}>
+            <div className="cli-cell token-symbol" style={{ width: '25%' }}>TOKEN</div>
+            <div className="cli-cell token-balance" style={{ width: '55%', textAlign: 'center' }}>AMOUNT</div>
+            <div className="cli-cell token-value" style={{ width: '20%' }}>VALUE</div>
+          </div>
+          
           {validTokens.map(token => (
-            <div key={token.address} className="swap-token-row">
-              <div className="token-info">
-                <div className="token-icon" style={{
-                  backgroundImage: token.logoURI ? `url(${token.logoURI})` : 'none',
-                  backgroundColor: token.logoURI ? 'transparent' : '#444'
-                }}>
-                  {!token.logoURI && token.symbol.substring(0, 2)}
-                </div>
-                <div className="token-details">
-                  <div className="token-symbol">{token.symbol}</div>
-                  <div className="token-balance">Balance: {token.formattedBalance}</div>
-                </div>
+            <div 
+              key={token.address} 
+              className={`cli-row ${swapAmounts[token.address]?.isValid ? 'selected' : ''}`}
+            >
+              <div className="cli-cell token-symbol">
+                {token.symbol}
               </div>
               
-              <div className="amount-input-container">
+              <div className="cli-cell token-balance">
                 <input
                   type="text"
-                  value={swapAmounts[token.address]?.amount || ''}
+                  value={swapAmounts[token.address]?.amount 
+                    ? parseFloat(swapAmounts[token.address].amount).toFixed(2) 
+                    : ''}
                   onChange={(e) => handleAmountChange(token, e.target.value)}
-                  className={`amount-input ${swapAmounts[token.address]?.isValid ? 'valid' : ''}`}
-                  placeholder="0.0"
+                  className={`cli-amount-input ${swapAmounts[token.address]?.isValid ? 'valid' : ''}`}
                 />
-                <button 
-                  className="max-button" 
-                  onClick={() => handleMaxClick(token)}
-                >
-                  MAX
-                </button>
+                <div style={{ display: 'inline-flex', whiteSpace: 'nowrap' }}>
+                  <span 
+                    className="cli-command-option" 
+                    onClick={() => handlePercentClick(token, 100)}
+                  >
+                    --max
+                  </span>
+                  <span 
+                    className="cli-command-option" 
+                    onClick={() => handlePercentClick(token, 0)}
+                  >
+                    --none
+                  </span>
+                </div>
               </div>
               
-              <div className="token-value">
-                {swapAmounts[token.address]?.isValid && swapAmounts[token.address]?.valueUsd > 0 && (
-                  <span>
-                    ${swapAmounts[token.address].valueUsd.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2
-                    })}
-                  </span>
-                )}
+              <div className="cli-cell token-value">
+                {swapAmounts[token.address]?.isValid && swapAmounts[token.address]?.valueUsd > 0 
+                  ? `$${swapAmounts[token.address].valueUsd.toFixed(2)}`
+                  : '-'
+                }
               </div>
             </div>
           ))}
         </div>
 
         {error && (
-          <div className="swap-error">
-            <p>{error}</p>
+          <div className="cli-error" style={{margin: '10px 0'}}>
+            Error: {error}
           </div>
         )}
 
-        <div className="swap-summary">
-          <div className="summary-row">
-            <span>Total Value:</span>
-            <span>
-              ${totalValueUsd.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })}
+        <div className="cli-swap-summary">
+          <div className="cli-summary-line">
+            <span className="cli-summary-label">Total Value:</span>
+            <span className="cli-summary-value">
+              ${totalValueUsd.toFixed(2)}
             </span>
           </div>
           
-          <div className="summary-row">
-            <span>Estimated BERA:</span>
-            <span>
-              {estimatedBera.toLocaleString(undefined, {
-                minimumFractionDigits: 6,
-                maximumFractionDigits: 6
-              })} BERA
+          <div className="cli-summary-line">
+            <span className="cli-summary-label">Estimated BERA:</span>
+            <span className="cli-summary-value">
+              {estimatedBera.toFixed(6)} BERA
             </span>
           </div>
         </div>
@@ -243,7 +257,7 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
               onClick={handleSwap}
               disabled={!isValid}
             >
-              execute-swap {isValid ? `--value $${totalValueUsd.toFixed(2)}` : '--invalid'}
+              execute-swap
             </button>
           </div>
         </div>

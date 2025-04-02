@@ -47,6 +47,21 @@
   font-size: 0.9rem;
 }
 
+/* CLI command options for the swap form */
+.cli-command-option {
+  margin-left: 8px;
+  cursor: pointer;
+  color: #586ff6;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.cli-command-option:hover {
+  color: #8a98f8;
+}
+
 .swap-tokens-list {
   margin-bottom: 20px;
 }

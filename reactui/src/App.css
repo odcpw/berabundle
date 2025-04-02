@@ -409,7 +409,7 @@ button:disabled {
   border-radius: 8px;
   overflow: hidden;
   width: 90%;
-  max-width: 700px;
+  max-width: 550px; /* Match width of main token column */
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -438,6 +438,10 @@ button:disabled {
   padding: 16px;
   overflow-y: auto;
   color: #f0f0f0;
+}
+
+.cli-table {
+  width: 100%;
 }
 
 .cli-overlay-command {
@@ -504,6 +508,70 @@ button:disabled {
 
 .cli-btn-claim:hover {
   background-color: rgba(255, 192, 69, 0.3);
+}
+
+/* CLI input styling for overlays */
+.cli-amount-input {
+  background-color: #2a2a2a;
+  border: 1px solid #444;
+  color: #f0f0f0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  width: 90px;
+  margin-right: 8px;
+  font-size: 0.9rem;
+  font-family: 'Courier New', monospace;
+  text-align: right;
+}
+
+.cli-cell.token-balance {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: right;
+  flex-wrap: nowrap;
+}
+
+/* For swap form rows */
+.cli-row {
+  display: flex;
+  align-items: center; /* Center content vertically */
+  min-height: 36px; /* Ensure consistent height */
+  padding: 8px 12px;
+}
+
+.cli-amount-input.valid {
+  border-color: rgba(88, 111, 246, 0.6);
+  background-color: rgba(88, 111, 246, 0.1);
+}
+
+.cli-amount-input:focus {
+  outline: none;
+  border-color: #586ff6;
+}
+
+.cli-max-option {
+  margin-left: 8px;
+  margin-right: 4px;
+  cursor: pointer;
+  color: #586ff6; /* Match the swap blue color */
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  font-size: 0.9rem;
+}
+
+.cli-max-option:hover {
+  color: #8a98f8;
+}
+
+/* CLI summary styling */
+.cli-swap-summary {
+  margin-top: 20px;
+  padding: 12px;
+  background-color: rgba(88, 111, 246, 0.1);
+  border-radius: 4px;
+  border: 1px solid rgba(88, 111, 246, 0.3);
 }
 
 .settings-panel {
