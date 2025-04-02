@@ -1,0 +1,103 @@
+/**
+ * test-safe-executor.js - Test the SafeExecutor with integrated SafeAdapter
+ * 
+ * This script tests our integrated solution for proposing transactions to a 
+ * Safe multisig wallet via the Safe Transaction Service API.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { ethers } = require('ethers');
+const SafeExecutor = require('./execution/executors/safeExecutor');
+const config = require('./config');
+
+// Configuration
+const CONFIG = {
+    safeAddress: '0x561EF9Fdf5341EF3815E69E1010067b7EF179dad',
+    signerAddress: '0x6c6eEbcBd13e2BBeC88e44f298B17Dea0d2ce46F', // The signer address from wallets.json
+    password: '68ouimoi', // Password for decryption
+};
+
+/**
+ * Load a bundle file from output directory
+ * @param {string} fileName - Bundle file name
+ * @returns {Object} Loaded bundle
+ */
+function loadBundle(fileName) {
+    const filePath = path.join(__dirname, 'output', fileName);
+    console.log(`Loading bundle from ${filePath}`);
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * Run the test for SafeExecutor
+ */
+async function testSafeExecutor() {
+    try {
+        console.log('='.repeat(50));
+        console.log('🔐 SAFE EXECUTOR TEST');
+        console.log('='.repeat(50));
+        
+        // Step 1: Initialize SafeExecutor
+        console.log(`\nInitializing SafeExecutor...`);
+        const executor = new SafeExecutor();
+        console.log(`SafeExecutor initialized`);
+        
+        // Step 2: Find and load the most recent bundle
+        console.log('\nLooking for Safe UI bundles...');
+        const outputDir = path.join(__dirname, 'output');
+        const files = fs.readdirSync(outputDir);
+        const bundleFiles = files.filter(f => f.endsWith('_safe_ui.json'));
+        
+        if (bundleFiles.length === 0) {
+            throw new Error('No Safe UI bundles found in output directory');
+        }
+        
+        // Sort by date (newest first)
+        bundleFiles.sort((a, b) => {
+            return fs.statSync(path.join(outputDir, b)).mtime.getTime() - 
+                  fs.statSync(path.join(outputDir, a)).mtime.getTime();
+        });
+        
+        const newestBundle = bundleFiles[0];
+        console.log(`Using most recent bundle: ${newestBundle}`);
+        const bundle = loadBundle(newestBundle);
+        
+        // Step 3: Execute the bundle through the SafeExecutor
+        console.log('\nExecuting bundle through SafeExecutor...');
+        const executionOptions = {
+            safeAddress: CONFIG.safeAddress,
+            bundle: bundle,
+            signerAddress: CONFIG.signerAddress,
+            password: CONFIG.password
+        };
+        
+        const result = await executor.execute(executionOptions);
+        
+        // Step 4: Return the result
+        console.log('\n='.repeat(50));
+        console.log('📋 RESULT:');
+        console.log('='.repeat(50));
+        console.log(JSON.stringify(result, null, 2));
+        
+        if (result.success) {
+            console.log('\n✅ Success!');
+            console.log(`You can view your transaction at: ${result.transactionUrl}`);
+        } else {
+            console.log('\n❌ Failed to execute Safe transaction');
+        }
+        
+        return result;
+    } catch (error) {
+        console.error(`\n❌ ERROR: ${error.message}`);
+        if (error.stack) console.error(error.stack);
+        
+        return {
+            success: false,
+            message: error.message
+        };
+    }
+}
+
+// Run the test
+testSafeExecutor();

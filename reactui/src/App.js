@@ -74,7 +74,11 @@ function App() {
   // Initialize services when provider and API key are available
   useEffect(() => {
     if (provider && apiKey) {
-      const tokenBridgeInitialized = tokenBridge.initialize(provider, apiKey);
+      // Get signer from provider
+      const signer = provider.getSigner();
+      
+      // Initialize services with provider, signer and API key
+      const tokenBridgeInitialized = tokenBridge.initialize(provider, apiKey, signer);
       const rewardsServiceInitialized = rewardsService.initialize(provider, apiKey);
       
       if (!tokenBridgeInitialized) {
@@ -93,7 +97,8 @@ function App() {
     setApiKey(newApiKey);
     
     if (provider) {
-      tokenBridge.initialize(provider, newApiKey);
+      const signer = provider.getSigner();
+      tokenBridge.initialize(provider, newApiKey, signer);
       rewardsService.initialize(provider, newApiKey);
     }
   };
@@ -438,8 +443,8 @@ function App() {
   };
 
   // Execute token swap
-  const handleSwap = async (swapData, totalValueUsd, estimatedBera, bundleMethod = 'individual') => {
-    if (!account || !provider || !signer || swapData.length === 0) return;
+  const handleSwap = async (swapData, totalValueUsd, estimatedOutput, bundleMethod = 'individual', bundleOptions = {}) => {
+    if (!account || !provider || swapData.length === 0) return;
     
     setSwapStatus({
       loading: true,
@@ -448,39 +453,65 @@ function App() {
     });
     
     try {
-      console.log(`Executing swap with method: ${bundleMethod}`);
-      console.log("Swap data:", swapData);
-      console.log("Total value:", totalValueUsd);
-      console.log("Estimated BERA:", estimatedBera);
+      console.log(`[DEBUG] ======= STARTING SWAP EXECUTION =======`);
+      console.log(`[DEBUG] Executing swap with method: ${bundleMethod}`);
+      console.log("[DEBUG] Swap data:", JSON.stringify(swapData, null, 2));
+      console.log("[DEBUG] Total value:", totalValueUsd);
+      console.log("[DEBUG] Target token:", bundleOptions.targetToken?.symbol || "BERA");
+      console.log("[DEBUG] Estimated output:", estimatedOutput);
+      console.log("[DEBUG] User account:", account);
       
-      // Create a swap bundle using the TokenBridge
-      const bundle = await tokenBridge.createSwapBundle(account, swapData);
+      // Start timing
+      const startTime = performance.now();
+      
+      console.log("[DEBUG] Creating swap bundle...");
+      // Create a swap bundle using the TokenBridge with the target token
+      const bundle = await tokenBridge.createSwapBundle(account, swapData, bundleOptions);
+      
+      const bundleCreateTime = performance.now();
+      console.log(`[DEBUG] Bundle creation completed in ${(bundleCreateTime - startTime).toFixed(2)}ms`);
       
       if (bundle.error) {
         throw new Error(`Failed to create swap bundle: ${bundle.error}`);
       }
       
-      console.log("Created swap bundle:", bundle);
-      console.log(`Bundle contains ${bundle.approvalTxs.length} approvals and ${bundle.swapTxs.length} swaps`);
+      console.log("[DEBUG] Created swap bundle:", JSON.stringify(bundle, null, 2));
+      console.log(`[DEBUG] Bundle contains ${bundle.approvalTxs.length} approvals and ${bundle.swapTxs.length} swaps`);
       
       let swapResult;
       
       if (bundleMethod === 'berabundler') {
         // Use Berabundler contract
-        console.log("Executing swap through Berabundler contract...");
+        console.log("[DEBUG] Executing swap through Berabundler contract...");
         swapResult = await tokenBridge.executeSwapBundle(bundle);
+        
+        const executionTime = performance.now();
+        console.log(`[DEBUG] Swap execution completed in ${(executionTime - bundleCreateTime).toFixed(2)}ms`);
       } else {
         // Fallback to individual transaction execution
-        console.log("Executing swap transactions individually...");
+        console.log("[DEBUG] Executing swap transactions individually...");
         // This would be implemented in a real application
         throw new Error("Individual transaction execution not implemented");
       }
       
       if (!swapResult.success) {
+        console.error("[DEBUG] Swap execution failed:", swapResult);
         throw new Error(swapResult.error || "Swap execution failed");
       }
       
-      console.log("Swap successful:", swapResult);
+      console.log("[DEBUG] Swap successful:", JSON.stringify(swapResult, null, 2));
+      console.log(`[DEBUG] Swap transaction hash: ${swapResult.hash}`);
+      
+      if (swapResult.receipt) {
+        console.log("[DEBUG] Transaction receipt:", JSON.stringify(swapResult.receipt, null, 2));
+        console.log(`[DEBUG] Gas used: ${swapResult.receipt.gasUsed.toString()}`);
+        console.log(`[DEBUG] Block number: ${swapResult.receipt.blockNumber}`);
+      }
+      
+      // Calculate total execution time
+      const endTime = performance.now();
+      console.log(`[DEBUG] Total swap process completed in ${(endTime - startTime).toFixed(2)}ms`);
+      console.log(`[DEBUG] ======= SWAP EXECUTION COMPLETE =======`);
       
       // Update swap status
       setSwapStatus({
@@ -500,7 +531,10 @@ function App() {
       }, 2000);
       
     } catch (err) {
-      console.error("Swap error:", err);
+      console.error("[DEBUG] Swap error:", err);
+      console.error("[DEBUG] Error stack:", err.stack);
+      console.log(`[DEBUG] ======= SWAP EXECUTION FAILED =======`);
+      
       setSwapStatus({
         loading: false,
         success: false,

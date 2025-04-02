@@ -20,31 +20,33 @@ class TokenBridge {
     this.priceExpiry = 5 * 60 * 1000; // 5 minutes
     this.apiKey = null; // Will need to be set by the user
     this.apiBaseUrl = 'https://mainnet.api.oogabooga.io';
+    this.bundlerContract = berabundlerService.contractAddress;
   }
   
   /**
-   * Initialize the bridge with a provider
+   * Initialize the bridge with a provider and signer
    * @param {ethers.providers.Web3Provider} provider - Ethers provider
    * @param {string} apiKey - OogaBooga API key
+   * @param {ethers.Signer} signer - Ethers signer
    */
-  initialize(provider, apiKey) {
+  initialize(provider, apiKey, signer) {
     this.provider = provider;
     this.apiKey = apiKey;
+    this.signer = signer;
     
-    if (provider) {
-      this.signer = provider.getSigner();
-      // Initialize the BerabundlerService
-      berabundlerService.initialize(provider, this.signer);
+    // Initialize the BerabundlerService
+    if (provider && signer) {
+      berabundlerService.initialize(provider, signer);
     }
     
-    return Boolean(provider && apiKey);
+    return Boolean(provider && apiKey && signer);
   }
   
   /**
    * Check if the bridge is initialized
    */
   isInitialized() {
-    return Boolean(this.provider && this.apiKey);
+    return Boolean(this.provider && this.apiKey && this.signer);
   }
   
   /**
@@ -61,22 +63,51 @@ class TokenBridge {
     }
     
     const url = endpoint.startsWith('http') ? endpoint : `${this.apiBaseUrl}${endpoint}`;
+    console.log("[DEBUG] Making API request to:", url);
     
     try {
-      const response = await fetch(url, {
+      // Log API request
+      const requestConfig = {
         method: 'GET',
         headers: { 
           'Authorization': `Bearer ${this.apiKey.trim()}`,
           'Accept': 'application/json'
         }
+      };
+      
+      // Don't log the actual API key in production
+      console.log('[DEBUG] API request config:', {
+        ...requestConfig,
+        headers: {
+          ...requestConfig.headers,
+          'Authorization': `Bearer ${this.apiKey.substring(0, 3)}...${this.apiKey.substring(this.apiKey.length - 3)}`
+        }
       });
       
+      const response = await fetch(url, requestConfig);
+      
+      // Log response status
+      console.log(`[DEBUG] API response status: ${response.status} ${response.statusText}`);
+      console.log('[DEBUG] API response headers:', Object.fromEntries([...response.headers.entries()]));
+      
       if (response.ok) {
-        return await response.json();
+        const responseData = await response.json();
+        return responseData;
       } else {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
+        // For error responses, try to extract any available error details
+        let errorDetails = '';
+        try {
+          const errorResponse = await response.text();
+          console.log('[DEBUG] API error response:', errorResponse);
+          errorDetails = errorResponse;
+        } catch (e) {
+          console.log('[DEBUG] Could not parse error response:', e);
+        }
+        
+        throw new Error(`API error: ${response.status} ${response.statusText}${errorDetails ? ` - ${errorDetails}` : ''}`);
       }
     } catch (error) {
+      console.error('[DEBUG] API call failed:', error);
       throw error;
     }
   }
@@ -291,14 +322,20 @@ class TokenBridge {
    * Creates a swap bundle for the Berabundler contract
    * @param {string} fromAddress - Wallet address initiating the swaps
    * @param {Array<Object>} tokensToSwap - Array of token objects with amount to swap
+   * @param {Object} options - Additional options for bundle creation
+   * @param {Object} options.targetToken - The token to swap to (defaults to BERA)
    * @returns {Promise<Object>} Bundle containing transaction data and expected output
    */
-  async createSwapBundle(fromAddress, tokensToSwap) {
+  async createSwapBundle(fromAddress, tokensToSwap, options = {}) {
     try {
-      console.log(`Creating swap bundle for ${fromAddress} with ${tokensToSwap.length} tokens`);
+      const targetToken = options.targetToken || { address: '0x0000000000000000000000000000000000000000', symbol: 'BERA', decimals: 18 };
+      console.log(`Creating swap bundle for ${fromAddress} with ${tokensToSwap.length} tokens, target: ${targetToken.symbol}`);
+      console.log("Token data:", tokensToSwap);
+      console.log("Target token:", targetToken);
       
       const swapTransactions = [];
-      const approvalTransactions = [];
+      const routerApprovalTxs = []; // Approvals for routers
+      const bundlerApprovalTxs = []; // Approvals for the bundler contract
       
       for (const token of tokensToSwap) {
         // Skip if token is BERA
@@ -306,15 +343,44 @@ class TokenBridge {
           continue;
         }
         
+        // Make sure we have the token address
+        if (!token.address) {
+          console.error("Token address is missing", token);
+          continue;
+        }
+        
+        console.log(`Processing token ${token.symbol} (${token.address})`);
+        
         // Convert the token amount to wei
         const amountIn = ethers.utils.parseUnits(
           token.amount.toString(),
           token.decimals || 18
         );
         
-        // Get swap quote from API using the v1/swap endpoint
-        const endpoint = `/v1/swap?tokenIn=${token.address}&tokenOut=0x0000000000000000000000000000000000000000&amount=${amountIn.toString()}&slippage=0.01&to=${fromAddress}`;
+        console.log(`Amount: ${token.amount}, Decimals: ${token.decimals}, Parsed: ${amountIn.toString()}`);
+        
+        // Get swap quote from API using the v1/swap endpoint with the custom target token
+        const targetTokenAddress = targetToken.address;
+        const endpoint = `/v1/swap?tokenIn=${token.address}&tokenOut=${targetTokenAddress}&amount=${amountIn.toString()}&slippage=0.01&to=${fromAddress}`;
+        console.log("[DEBUG] API endpoint:", endpoint);
+        console.log("[DEBUG] API request URL:", `${this.apiBaseUrl}${endpoint}`);
+        
+        // Log the request details
+        console.log("[DEBUG] API request details:", {
+          method: 'GET',
+          url: `${this.apiBaseUrl}${endpoint}`,
+          headers: { 
+            'Authorization': `Bearer ${this.apiKey.substring(0, 3)}...${this.apiKey.substring(this.apiKey.length - 3)}`, // Log partial API key for security
+            'Accept': 'application/json'
+          }
+        });
+        
+        const startTime = performance.now();
         const quoteResponse = await this.apiCallWithAuth(endpoint);
+        const endTime = performance.now();
+        
+        console.log(`[DEBUG] API response received in ${(endTime - startTime).toFixed(2)}ms`);
+        console.log("[DEBUG] API response:", JSON.stringify(quoteResponse, null, 2));
         
         if (!quoteResponse || !quoteResponse.tx) {
           throw new Error(`Swap response doesn't contain transaction data for ${token.symbol}`);
@@ -323,29 +389,93 @@ class TokenBridge {
         // Extract transaction details
         const { tx } = quoteResponse;
         
-        // Add to swap transactions
+        // Ensure the router address is valid
+        if (!tx.to) {
+          throw new Error(`Invalid router address in swap response for ${token.symbol}`);
+        }
+        
+        // IMPORTANT: For Berabundler to work with the router, we need to make sure:
+        // 1. The value field is correctly formatted as a string if hex, or converted to hex if number
+        // 2. The data field is properly formatted as a hex string
+        
+        // Normalize value to ensure it's a valid hex string
+        let valueHex = tx.value || '0x0';
+        if (typeof valueHex === 'number') {
+          valueHex = '0x' + valueHex.toString(16);
+        } else if (typeof valueHex === 'string' && !valueHex.startsWith('0x')) {
+          valueHex = '0x' + parseInt(valueHex).toString(16);
+        }
+        
+        // Check that we have a valid router address
+        if (!tx.to) {
+          throw new Error(`Invalid router address in swap response for ${token.symbol}`);
+        }
+        
+        // Build a swapParams object to organize parameters for direct swap execution
+        const swapParams = {
+          router: tx.to,
+          inputToken: token.address,
+          inputAmount: amountIn.toString(),
+          outputToken: quoteResponse.routerParams?.swapTokenInfo?.tokenOut || "0x0000000000000000000000000000000000000000",
+          outputQuote: quoteResponse.assumedAmountOut || quoteResponse.expectedAmountOut,
+          minOutput: quoteResponse.routerParams?.swapTokenInfo?.outputMin || quoteResponse.minAmountOut,
+          pathDefinition: quoteResponse.routerParams?.path || "0x",
+          executor: quoteResponse.routerParams?.executor, // if provided
+          referralCode: quoteResponse.referralCode || 0
+        };
+        
+        // Use the already normalized valueHex from earlier
+        
         swapTransactions.push({
+          swapParams, // include our structured swap parameters
           to: tx.to,
           data: tx.data,
-          value: tx.value || '0x0',
+          value: valueHex,
           gasLimit: tx.gasLimit || '0x55555',
           token: {
             symbol: token.symbol,
             address: token.address,
             amount: token.amount,
-            amountIn: amountIn.toString()
+            amountIn: amountIn.toString(),
+            decimals: token.decimals || 18
           },
           quote: {
-            expectedAmountOut: quoteResponse.assumedAmountOut || quoteResponse.expectedAmountOut,
-            formattedAmountOut: ethers.utils.formatEther(quoteResponse.assumedAmountOut || quoteResponse.expectedAmountOut || '0'),
-            minAmountOut: quoteResponse.routerParams?.swapTokenInfo?.outputMin || quoteResponse.minAmountOut,
+            expectedAmountOut: swapParams.outputQuote,
+            formattedAmountOut: ethers.utils.formatEther(swapParams.outputQuote),
+            minAmountOut: swapParams.minOutput,
             priceImpact: quoteResponse.priceImpact
           }
         });
         
-        // Check if approval is needed
+        // Check if approval is needed for the BUNDLER
         if (this.provider) {
           try {
+            // Check if token is approved for bundler
+            const isBundlerApproved = await this.checkBundlerApproval(
+              token.address, 
+              fromAddress, 
+              amountIn
+            );
+            
+            if (!isBundlerApproved) {
+              console.log(`Need approval for ${token.symbol} to bundler ${this.bundlerContract}`);
+              
+              // Add bundler approval transaction
+              bundlerApprovalTxs.push({
+                token: {
+                  symbol: token.symbol,
+                  address: token.address,
+                  amount: token.amount,
+                  amountIn: amountIn.toString()
+                },
+                type: 'bundlerApproval'
+              });
+            } else {
+              console.log(`Token ${token.symbol} already approved for bundler`);
+            }
+            
+            // We no longer need router approvals when using the bundler contract
+            // But keep the code to check router approvals for comparison
             const tokenContract = new ethers.Contract(
               token.address,
               ["function allowance(address owner, address spender) view returns (uint256)"],
@@ -356,29 +486,22 @@ class TokenBridge {
             const allowance = await tokenContract.allowance(fromAddress, routerAddress);
             
             if (allowance.lt(amountIn)) {
-              console.log(`Need approval for ${token.symbol} to router ${routerAddress}`);
-              // Add approval transaction
-              approvalTransactions.push({
-                to: routerAddress,
-                token: {
-                  symbol: token.symbol,
-                  address: token.address
-                },
-                type: 'approval'
-              });
+              console.log(`[INFO] Router approval needed for ${token.symbol} to router ${routerAddress}, but we're using bundler instead`);
+              // Note: We're not adding router approvals anymore - bundler will handle it
             } else {
-              console.log(`Token ${token.symbol} already has sufficient allowance`);
+              console.log(`[INFO] Token ${token.symbol} already has sufficient allowance to router ${routerAddress}`);
             }
           } catch (error) {
-            console.error(`Failed to check allowance for ${token.symbol}:`, error);
-            // Assume approval is needed if checking fails
-            approvalTransactions.push({
-              to: tx.to,
+            console.error(`Failed to check allowances for ${token.symbol}:`, error);
+            // Assume bundler approval is needed if checking fails
+            bundlerApprovalTxs.push({
               token: {
                 symbol: token.symbol,
-                address: token.address
+                address: token.address,
+                amount: token.amount,
+                amountIn: amountIn.toString()
               },
-              type: 'approval'
+              type: 'bundlerApproval'
             });
           }
         }
@@ -393,7 +516,8 @@ class TokenBridge {
       return {
         fromAddress,
         swapTxs: swapTransactions,
-        approvalTxs: approvalTransactions,
+        approvalTxs: routerApprovalTxs, // Keep for compatibility
+        bundlerApprovalTxs, // New field for bundler approvals
         totalExpectedBera,
         formattedTotalExpectedBera: totalExpectedBera.toLocaleString(undefined, {
           minimumFractionDigits: 2,
@@ -406,7 +530,132 @@ class TokenBridge {
         error: error.message,
         fromAddress,
         swapTxs: [],
-        approvalTxs: []
+        approvalTxs: [],
+        bundlerApprovalTxs: []
+      };
+    }
+  }
+  
+  /**
+   * Check if a token is approved for the bundler contract
+   * @param {string} tokenAddress - The token contract address
+   * @param {string} ownerAddress - The token owner address
+   * @param {string|number} amount - The amount to check approval for
+   * @returns {Promise<boolean>} Whether the token is approved
+   */
+  async checkBundlerApproval(tokenAddress, ownerAddress, amount) {
+    if (!this.provider) {
+      throw new Error("Provider not initialized");
+    }
+    
+    try {
+      // Create a contract instance for the token
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ["function allowance(address owner, address spender) view returns (uint256)"],
+        this.provider
+      );
+      
+      // Convert amount to BigNumber if it's not already
+      const amountBN = ethers.BigNumber.isBigNumber(amount) 
+        ? amount 
+        : ethers.utils.parseUnits(amount.toString(), 18);
+      
+      // Check allowance for the bundler contract
+      const allowance = await tokenContract.allowance(ownerAddress, this.bundlerContract);
+      console.log(`Token ${tokenAddress} allowance to bundler: ${allowance.toString()}`);
+      
+      // Check if allowance is greater than or equal to amount
+      return allowance.gte(amountBN);
+    } catch (error) {
+      console.error(`Error checking bundler approval for ${tokenAddress}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Approve a token for the bundler contract
+   * @param {string} tokenAddress - The token contract address
+   * @param {string} amount - The amount to approve (use ethers.constants.MaxUint256 for unlimited)
+   * @returns {Promise<Object>} Transaction result
+   */
+  async approveTokenToBundler(tokenAddress, amount = ethers.constants.MaxUint256) {
+    if (!this.provider || !this.signer) {
+      throw new Error("Provider or signer not initialized");
+    }
+    
+    try {
+      console.log(`Directly approving ${tokenAddress} to bundler ${this.bundlerContract}`);
+      
+      // Create a contract instance for the token
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ["function approve(address spender, uint256 amount) returns (bool)"],
+        this.signer
+      );
+      
+      // Send the approval transaction
+      const tx = await tokenContract.approve(this.bundlerContract, amount);
+      console.log(`Approval transaction sent: ${tx.hash}`);
+      
+      // Wait for the approval to be confirmed
+      const receipt = await tx.wait();
+      console.log(`Approval confirmed in block ${receipt.blockNumber}`);
+      
+      return {
+        success: true,
+        hash: tx.hash,
+        receipt: receipt
+      };
+    } catch (error) {
+      console.error(`Error approving token to bundler:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Directly approve tokens to the router
+   * @param {string} tokenAddress - The token contract address
+   * @param {string} routerAddress - The router address to approve
+   * @param {string} amount - The amount to approve (use ethers.constants.MaxUint256 for unlimited)
+   * @returns {Promise<Object>} Transaction result
+   */
+  async approveTokenToRouter(tokenAddress, routerAddress, amount = ethers.constants.MaxUint256) {
+    if (!this.provider || !this.signer) {
+      throw new Error("Provider or signer not initialized");
+    }
+    
+    try {
+      console.log(`Directly approving ${tokenAddress} to router ${routerAddress}`);
+      
+      // Create a contract instance for the token
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ["function approve(address spender, uint256 amount) returns (bool)"],
+        this.signer
+      );
+      
+      // Send the approval transaction
+      const tx = await tokenContract.approve(routerAddress, amount);
+      console.log(`Approval transaction sent: ${tx.hash}`);
+      
+      // Wait for the approval to be confirmed
+      const receipt = await tx.wait();
+      console.log(`Approval confirmed in block ${receipt.blockNumber}`);
+      
+      return {
+        success: true,
+        hash: tx.hash,
+        receipt: receipt
+      };
+    } catch (error) {
+      console.error("Error approving token:", error);
+      return {
+        success: false,
+        error: error.message
       };
     }
   }
@@ -421,8 +670,65 @@ class TokenBridge {
       throw new Error("Provider or signer not initialized");
     }
     
-    // Use the BerabundlerService to execute the bundle
-    return await berabundlerService.executeBundle(bundle);
+    try {
+      // Handle bundler approvals first
+      if (bundle.bundlerApprovalTxs && bundle.bundlerApprovalTxs.length > 0) {
+        console.log(`Handling ${bundle.bundlerApprovalTxs.length} bundler approvals before swap...`);
+        
+        for (const approvalTx of bundle.bundlerApprovalTxs) {
+          console.log(`Approving ${approvalTx.token.symbol} to bundler contract ${this.bundlerContract}`);
+          
+          // Send approval transaction
+          const approvalResult = await this.approveTokenToBundler(
+            approvalTx.token.address
+          );
+          
+          if (!approvalResult.success) {
+            throw new Error(`Failed to approve ${approvalTx.token.symbol} to bundler: ${approvalResult.error}`);
+          }
+          
+          console.log(`${approvalTx.token.symbol} approved successfully to bundler`);
+        }
+      }
+      
+      // Handle router approvals if needed (for compatibility)
+      if (bundle.approvalTxs && bundle.approvalTxs.length > 0) {
+        console.log(`Handling ${bundle.approvalTxs.length} router approvals before swap...`);
+        
+        for (const approvalTx of bundle.approvalTxs) {
+          console.log(`Directly approving ${approvalTx.token.symbol} to router ${approvalTx.to}`);
+          
+          // Send direct approval transaction
+          const approvalResult = await this.approveTokenToRouter(
+            approvalTx.token.address, 
+            approvalTx.to
+          );
+          
+          if (!approvalResult.success) {
+            throw new Error(`Failed to approve ${approvalTx.token.symbol} to router: ${approvalResult.error}`);
+          }
+          
+          console.log(`${approvalTx.token.symbol} approved successfully to router`);
+        }
+      }
+      
+      // Check if we're dealing with a single swap transaction
+      if (bundle.swapTxs.length === 1) {
+        // Try using the direct swap method for a single swap
+        console.log("Using direct swap method for a single swap transaction...");
+        return await berabundlerService.executeDirectSwap(bundle.swapTxs[0]);
+      } else {
+        // Use the executeBundle method for multiple operations
+        console.log("Using executeBundle method for multiple operations...");
+        return await berabundlerService.executeBundle(bundle);
+      }
+    } catch (error) {
+      console.error("Error in executeSwapBundle:", error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
   }
 }
 

@@ -22,8 +22,8 @@ class RewardsService {
     this.contractAddresses = {
       // Always use lowercase addresses to be converted consistently - copied from config.js
       bgtStaker: '0x44f07ce5afecbcc406e6befd40cc2998eeb8c7c6',
-      honeyToken: '0x7eeca4205ff31f947edbd49195a7a88e6a91161b',
-      bgtToken: '0x656b95e550c07a9ffe548bd4085c72418ceb1dba', // This is actually BGT token (validatorBoostAddress in config)
+      honeyToken: '0x7eeca4205ff31f947edbd49195a7a88e6a91161b', // HONEY token from BGT Staker rewards
+      bgtToken: '0x656b95e550c07a9ffe548bd4085c72418ceb1dba', // BGT token (validatorBoostAddress in config)
       rewardVaultFactory: '0x94ad6ac84f6c6fba8b8ccbd71d9f4f101def52a8'
     };
   }
@@ -224,9 +224,11 @@ class RewardsService {
         return null;
       }
       
-      // Get token info
-      const honeyTokenInfo = await this.getTokenInfo(honeyTokenAddress);
-      console.log(`Got HONEY token info: ${JSON.stringify(honeyTokenInfo)}`);
+      // This is always HONEY - no need to check the contract
+      const honeyTokenInfo = {
+        symbol: "HONEY",
+        decimals: 18
+      };
       
       // Get price for HONEY
       let priceUsd = null;
@@ -253,7 +255,7 @@ class RewardsService {
       return {
         id: `bgtStaker-${bgtStakerAddress.substring(2, 10)}`,
         type: 'bgtStaker',
-        name: 'Honey Pool', // No symbol in the name
+        name: 'BGT Staker Honey Fees', // Updated name for clarity
         symbol: honeyTokenInfo.symbol, // Keep separately for internal use
         source: 'BGT Staker',
         amount: formattedEarned,
@@ -273,6 +275,7 @@ class RewardsService {
         },
         contractAddress: bgtStakerAddress,
         rawEarned: earned,
+        // We still include userBalance in case other components need it, but it won't be displayed
         userBalance: formattedBalance
       };
     } catch (error) {
@@ -1277,80 +1280,89 @@ class RewardsService {
       if (!totalBoosts.isZero() || !totalQueuedBoost.isZero()) {
         console.log(`User has boosts: ${ethers.utils.formatEther(totalBoosts)} BGT active and ${ethers.utils.formatEther(totalQueuedBoost)} BGT queued`);
         
-        // Get list of validators to check from the map
+        // Get all validators from the map
         const validatorsToCheck = Object.values(this.validatorMap);
         
-        // Limit to a reasonable number to avoid too many calls
-        const MAX_VALIDATORS_TO_CHECK = 15;
-        const limitedValidators = validatorsToCheck.slice(0, MAX_VALIDATORS_TO_CHECK);
+        // Check all validators like in the CLI version
+        console.log(`Checking boosts for all ${validatorsToCheck.length} validators...`);
         
-        console.log(`Checking boosts for ${limitedValidators.length} validators...`);
-        
-        // Check each validator for active boosts
-        if (limitedValidators.length > 0) {
-          for (const validator of limitedValidators) {
-            try {
-              const validatorKey = validator.pubkey || validator.id;
-              if (!validatorKey) continue;
-              
-              // Convert validator key to bytes
-              const validatorBytes = hexToBytes(validatorKey);
-              if (!validatorBytes) {
-                console.warn(`Skipping validator ${validator.name} - invalid pubkey format`);
-                continue;
+        // Check validators in batches to improve performance
+        if (validatorsToCheck.length > 0) {
+          // Process in batches of reasonable size to avoid overwhelming the network
+          const BATCH_SIZE = 5;
+          const totalValidators = validatorsToCheck.length;
+          
+          for (let i = 0; i < totalValidators; i += BATCH_SIZE) {
+            const batch = validatorsToCheck.slice(i, i + BATCH_SIZE);
+            const batchEnd = Math.min(i + BATCH_SIZE, totalValidators);
+            console.log(`Processing batch ${i+1}-${batchEnd} of ${totalValidators} validators...`);
+            
+            // Process batch in parallel for better performance
+            await Promise.all(batch.map(async (validator) => {
+              try {
+                const validatorKey = validator.pubkey || validator.id;
+                if (!validatorKey) return;
+                
+                // Convert validator key to bytes
+                const validatorBytes = hexToBytes(validatorKey);
+                if (!validatorBytes) {
+                  console.warn(`Skipping validator ${validator.name} - invalid pubkey format`);
+                  return;
+                }
+                
+                // Check for active and queued boosts in parallel
+                const [boostAmount, queuedAmount] = await Promise.all([
+                  this.retryPromise(() => validatorBoost.boosted(normalizedAddress, validatorBytes), 3),
+                  this.retryPromise(() => validatorBoost.boostedQueue(normalizedAddress, validatorBytes), 3)
+                ]);
+                
+                // Process active boost if exists
+                if (!boostAmount.isZero()) {
+                  console.log(`Found boost for validator ${validator.name}: ${ethers.utils.formatEther(boostAmount)} BGT`);
+                  
+                  // Get total boost for this validator
+                  const totalValidatorBoost = await this.retryPromise(() => 
+                    validatorBoost.boostees(validatorBytes), 3
+                  );
+                  
+                  // Calculate share percentage
+                  const userBoostAmountFloat = parseFloat(ethers.utils.formatEther(boostAmount));
+                  const totalBoostFloat = parseFloat(ethers.utils.formatEther(totalValidatorBoost));
+                  const sharePercent = totalBoostFloat > 0 
+                    ? ((userBoostAmountFloat / totalBoostFloat) * 100).toFixed(2)
+                    : "0.00";
+                  
+                  activeBoosts.push({
+                    pubkey: validatorKey,
+                    id: validator.id,
+                    name: validator.name,
+                    userBoostAmount: ethers.utils.formatEther(boostAmount),
+                    totalBoost: ethers.utils.formatEther(totalValidatorBoost),
+                    share: sharePercent,
+                    status: "active"
+                  });
+                }
+                
+                // Process queued boost if exists
+                if (!queuedAmount.isZero()) {
+                  console.log(`Found queued boost for validator ${validator.name}: ${ethers.utils.formatEther(queuedAmount)} BGT`);
+                  
+                  queuedBoosts.push({
+                    pubkey: validatorKey,
+                    id: validator.id,
+                    name: validator.name,
+                    queuedBoostAmount: ethers.utils.formatEther(queuedAmount),
+                    status: "queued"
+                  });
+                }
+              } catch (err) {
+                console.warn(`Error checking boost for validator ${validator.name}:`, err);
               }
-              
-              console.log(`Checking boosts for validator ${validator.name} (${validatorKey.substring(0, 10)}...)`);
-              
-              // Check for active boosts
-              const boostAmount = await this.retryPromise(() => 
-                validatorBoost.boosted(normalizedAddress, validatorBytes), 3
-              );
-              
-              if (!boostAmount.isZero()) {
-                console.log(`Found boost for validator ${validator.name}: ${ethers.utils.formatEther(boostAmount)} BGT`);
-                
-                // Get total boost for this validator
-                const totalValidatorBoost = await this.retryPromise(() => 
-                  validatorBoost.boostees(validatorBytes), 3
-                );
-                
-                // Calculate share percentage
-                const userBoostAmountFloat = parseFloat(ethers.utils.formatEther(boostAmount));
-                const totalBoostFloat = parseFloat(ethers.utils.formatEther(totalValidatorBoost));
-                const sharePercent = totalBoostFloat > 0 
-                  ? ((userBoostAmountFloat / totalBoostFloat) * 100).toFixed(2)
-                  : "0.00";
-                
-                activeBoosts.push({
-                  pubkey: validatorKey,
-                  id: validator.id,
-                  name: validator.name,
-                  userBoostAmount: ethers.utils.formatEther(boostAmount),
-                  totalBoost: ethers.utils.formatEther(totalValidatorBoost),
-                  share: sharePercent,
-                  status: "active"
-                });
-              }
-              
-              // Check for queued boosts
-              const queuedAmount = await this.retryPromise(() => 
-                validatorBoost.boostedQueue(normalizedAddress, validatorBytes), 3
-              );
-              
-              if (!queuedAmount.isZero()) {
-                console.log(`Found queued boost for validator ${validator.name}: ${ethers.utils.formatEther(queuedAmount)} BGT`);
-                
-                queuedBoosts.push({
-                  pubkey: validatorKey,
-                  id: validator.id,
-                  name: validator.name,
-                  queuedBoostAmount: ethers.utils.formatEther(queuedAmount),
-                  status: "queued"
-                });
-              }
-            } catch (err) {
-              console.warn(`Error checking boost for validator ${validator.name}:`, err);
+            }));
+            
+            // Small delay between batches to prevent rate limiting
+            if (i + BATCH_SIZE < totalValidators) {
+              await new Promise(resolve => setTimeout(resolve, 200));
             }
           }
         }

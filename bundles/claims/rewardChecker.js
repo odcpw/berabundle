@@ -429,39 +429,6 @@ class RewardChecker {
         }
     }
     
-    /**
-     * Check Delegation Rewards contract for claimable rewards
-     * This implementation always returns a reward option since there's no reliable
-     * way to check if delegation rewards are available before claiming.
-     * 
-     * @param {string} userAddress - User wallet address
-     * @returns {Promise<Object>} Delegation rewards information (always returned)
-     */
-    async checkDelegationRewardsDetailed(userAddress) {
-        // The delegation rewards contract does not provide a way to check available rewards
-        // It likely uses a Merkle proof system that requires off-chain data
-        // Instead, we'll always show this as an option and let users try claiming
-            
-        // Create a zero value so it doesn't affect calculations
-        const zeroValue = ethers.BigNumber.from("0");
-            
-        // The delegation rewards are typically in HONEY token
-        const honeyTokenInfo = { 
-            symbol: "HONEY", 
-            address: config.networks.berachain.honeyTokenAddress,
-            decimals: 18 
-        };
-            
-        return {
-            type: 'delegationRewards',
-            name: 'Bera Chain Validators',
-            contractAddress: config.networks.berachain.delegationRewardsAddress,
-            rewardToken: honeyTokenInfo,
-            earned: "0",
-            rawEarned: zeroValue,
-            alwaysAttemptClaim: true // Special flag indicating to always try claiming
-        };
-    }
 
     /**
      * Check all rewards for a user
@@ -571,23 +538,13 @@ class RewardChecker {
                 allRewards.push(bgtStakerRewards);
                 console.log(`Found BGT Staker rewards: ${bgtStakerRewards.earned} HONEY`);
                 if (progressCallback) {
-                    progressCallback(50, 100, "BGT Staker checking complete");
+                    progressCallback(100, 100, "BGT Staker checking complete");
                 }
             } else {
                 console.log("No BGT Staker rewards found.");
-            }
-            
-            // Always include Delegation Rewards option
-            console.log(`Adding Delegation Rewards option for ${userAddress}...`);
-            if (progressCallback) {
-                progressCallback(60, 100, "Adding Delegation Rewards option...");
-            }
-            
-            const delegationRewards = await this.checkDelegationRewardsDetailed(userAddress);
-            allRewards.push(delegationRewards);
-            console.log(`Added Delegation Rewards option (amount unknown)`);
-            if (progressCallback) {
-                progressCallback(100, 100, "Delegation Rewards option added");
+                if (progressCallback) {
+                    progressCallback(100, 100, "BGT Staker checking complete");
+                }
             }
             
             // Check validator boosts if requested
@@ -631,14 +588,6 @@ class RewardChecker {
             if (bgtStakerRewards) {
                 output += `BGT Staker (Honey Pool):\n`;
                 output += `  Pending HONEY: ${parseFloat(bgtStakerRewards.earned).toFixed(2)}\n`;
-                output += "──────────────────────────────────────────────────\n";
-            }
-            
-            // Always add Delegation Rewards option
-            if (delegationRewards) {
-                output += `Delegation Rewards (Bera Chain Validators):\n`;
-                output += `  HONEY: Amount unknown (must try claiming to check)\n`;
-                output += `  Note: This contract doesn't provide a way to check rewards before claiming\n`;
                 output += "──────────────────────────────────────────────────\n";
             }
 
@@ -723,7 +672,6 @@ class RewardChecker {
         let totalRewards = ethers.BigNumber.from(0);
         const rewardsByToken = {};
         let hasBGTStakerRewards = false;
-        let hasDelegationRewards = false;
         let vaultCount = 0;
 
         for (const item of rewards) {
@@ -740,8 +688,6 @@ class RewardChecker {
 
             if (item.type === 'bgtStaker') {
                 hasBGTStakerRewards = true;
-            } else if (item.type === 'delegationRewards') {
-                hasDelegationRewards = true;
             } else {
                 vaultCount++;
             }
@@ -775,7 +721,6 @@ class RewardChecker {
             totalRewards: parseFloat(ethers.utils.formatEther(totalRewards)),
             vaultCount,
             hasBGTStakerRewards,
-            hasDelegationRewards,
             activeValidatorBoostCount: validatorBoosts.activeBoosts ? validatorBoosts.activeBoosts.length : 0,
             queuedValidatorBoostCount: validatorBoosts.queuedBoosts ? validatorBoosts.queuedBoosts.length : 0,
             totalActiveBoostedBGT: totalActiveBoostedBGT.toFixed(2),
@@ -800,16 +745,6 @@ class RewardChecker {
         }
     }
     
-    /**
-     * Check claimable Honey rewards from Delegation Rewards contract
-     * @param {string} address - User wallet address
-     * @returns {Promise<string>} Formatted reward amount
-     */
-    async checkDelegationRewards(address) {
-        // Cannot determine reward amount from the contract
-        // Always return zero, but still show as an option when calling checkAllRewards
-        return "0";
-    }
     
     /**
      * Update validators list from GitHub

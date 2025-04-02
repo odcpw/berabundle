@@ -4,7 +4,8 @@
   "description": "BeraBundle - Bundle creator for claims, boosts, and swaps on Berachain",
   "main": "berabundle.js",
   "scripts": {
-    "start": "node berabundle.js"
+    "start": "node berabundle.js",
+    "start-ui": "cd reactui && npm start"
   },
   "keywords": [
     "berachain",

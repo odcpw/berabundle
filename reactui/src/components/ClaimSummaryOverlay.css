@@ -1,0 +1,223 @@
+.claim-summary-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.85);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-family: monospace;
+}
+
+.claim-summary-content {
+  background-color: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  color: #f0f0f0;
+}
+
+.claim-summary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  border-bottom: 1px solid #444;
+  background-color: #2a2a2a;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.claim-summary-header h2 {
+  margin: 0;
+  color: #00ff00;
+  font-size: 1.2rem;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: #f0f0f0;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.claim-section {
+  padding: 20px;
+  border-bottom: 1px solid #333;
+}
+
+.claim-section h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 1.1rem;
+  color: #00ff00;
+}
+
+.delegation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.delegation-header h3 {
+  margin: 0;
+}
+
+.edit-validators-button {
+  background-color: #333;
+  color: #00ff00;
+  border: 1px solid #00ff00;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-family: monospace;
+  transition: background-color 0.2s;
+}
+
+.edit-validators-button:hover {
+  background-color: #004400;
+}
+
+/* Rewards section styling */
+.rewards-list {
+  margin-bottom: 15px;
+}
+
+.reward-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.reward-token {
+  font-weight: bold;
+}
+
+.reward-amount {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #00ff00;
+}
+
+.reward-sources {
+  display: flex;
+  margin-top: 15px;
+  font-size: 0.9rem;
+  color: #aaa;
+}
+
+.sources-label {
+  margin-right: 10px;
+}
+
+.sources-list {
+  flex: 1;
+}
+
+.source-item {
+  margin-bottom: 4px;
+}
+
+/* Delegation section styling */
+.delegation-intro {
+  margin-bottom: 15px;
+  color: #aaa;
+}
+
+.validators-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #333;
+  border-radius: 4px;
+}
+
+.validator-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 15px;
+  border-bottom: 1px solid #333;
+}
+
+.validator-item:last-child {
+  border-bottom: none;
+}
+
+.validator-info {
+  flex: 1;
+}
+
+.validator-name {
+  font-weight: bold;
+  color: #f0f0f0;
+}
+
+.validator-pubkey {
+  font-size: 0.8rem;
+  color: #999;
+  margin-top: 4px;
+}
+
+.validator-allocation {
+  text-align: right;
+}
+
+.allocation-percent {
+  font-weight: bold;
+  color: #00ff00;
+}
+
+.allocation-amount {
+  font-size: 0.9rem;
+  color: #aaa;
+  margin-top: 2px;
+}
+
+/* Action buttons */
+.claim-actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 20px;
+  gap: 15px;
+}
+
+.claim-actions button {
+  padding: 12px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: monospace;
+  border: none;
+  font-size: 1rem;
+  flex: 1;
+}
+
+.cancel-button {
+  background-color: #333;
+  color: #f0f0f0;
+}
+
+.proceed-button {
+  background-color: #00aa00;
+  color: #f0f0f0;
+  font-weight: bold;
+}
+
+.proceed-button:hover {
+  background-color: #00cc00;
+}

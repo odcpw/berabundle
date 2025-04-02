@@ -1,0 +1,38 @@
+{
+  "0xc6e5c042b34a0b88df9d4fa00849ba8ecfad1894": {
+    "validators": [
+      {
+        "name": "The Honey Jar",
+        "pubkey": "0xa0c673180d97213c1c35fe3bf4e684dd3534baab235a106d1f71b9c8a37e4d37a056d47546964fd075501dff7f76aeaf"
+      },
+      {
+        "name": "Beradrome X ApDAO",
+        "pubkey": "0x89cbd542c737cca4bc33f1ea5084a857a7620042fe37fd326ecf5aeb61f2ce096043cd0ed57ba44693cf606978b566ba"
+      }
+    ],
+    "allocations": {
+      "0xa0c673180d97213c1c35fe3bf4e684dd3534baab235a106d1f71b9c8a37e4d37a056d47546964fd075501dff7f76aeaf": 50,
+      "0x89cbd542c737cca4bc33f1ea5084a857a7620042fe37fd326ecf5aeb61f2ce096043cd0ed57ba44693cf606978b566ba": 50
+    },
+    "lastUpdated": "2025-03-29T19:38:17.829Z"
+  },
+  "0x561ef9fdf5341ef3815e69e1010067b7ef179dad": {
+    "validators": [
+      {
+        "id": "0x89cbd542c737cca4bc33f1ea5084a857a7620042fe37fd326ecf5aeb61f2ce096043cd0ed57ba44693cf606978b566ba",
+        "name": "Beradrome X ApDAO",
+        "pubkey": "0x89cbd542c737cca4bc33f1ea5084a857a7620042fe37fd326ecf5aeb61f2ce096043cd0ed57ba44693cf606978b566ba"
+      },
+      {
+        "id": "0xa0c673180d97213c1c35fe3bf4e684dd3534baab235a106d1f71b9c8a37e4d37a056d47546964fd075501dff7f76aeaf",
+        "name": "The Honey Jar",
+        "pubkey": "0xa0c673180d97213c1c35fe3bf4e684dd3534baab235a106d1f71b9c8a37e4d37a056d47546964fd075501dff7f76aeaf"
+      }
+    ],
+    "allocations": {
+      "0x89cbd542c737cca4bc33f1ea5084a857a7620042fe37fd326ecf5aeb61f2ce096043cd0ed57ba44693cf606978b566ba": 50,
+      "0xa0c673180d97213c1c35fe3bf4e684dd3534baab235a106d1f71b9c8a37e4d37a056d47546964fd075501dff7f76aeaf": 50
+    },
+    "lastUpdated": "2025-03-31T13:47:35.134Z"
+  }
+}
