@@ -247,17 +247,17 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
           <div className="cli-command-row">
             <span className="cli-prompt">berabundle$</span> 
             <button 
-              className="cli-btn" 
-              onClick={onClose}
-            >
-              cancel
-            </button>
-            <button 
               className="cli-btn cli-btn-swap" 
               onClick={handleSwap}
               disabled={!isValid}
             >
               execute-swap
+            </button>
+            <button 
+              className="cli-btn" 
+              onClick={onClose}
+            >
+              cancel
             </button>
           </div>
         </div>
