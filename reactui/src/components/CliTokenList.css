@@ -19,6 +19,29 @@
   font-weight: bold;
 }
 
+.cli-header-commands {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.cli-header-main {
+  margin-bottom: 5px;
+}
+
+.cli-header-selection {
+  display: flex;
+  align-items: center;
+  padding-left: 20px;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+.cli-action {
+  color: #999;
+  margin-right: 8px;
+}
+
 .cli-prompt {
   color: #32cd32; /* lime green */
   margin-right: 8px;
@@ -31,15 +54,6 @@
   color: #f0f0f0;
 }
 
-.cli-command-line {
-  display: flex;
-  align-items: center;
-  margin-bottom: 10px;
-  padding: 4px 0;
-  font-weight: bold;
-  color: #aaa;
-  border-bottom: 1px dotted #444;
-}
 
 .cli-command-option {
   margin-left: 8px;

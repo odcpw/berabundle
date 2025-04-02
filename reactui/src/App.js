@@ -774,42 +774,60 @@ function App() {
           ) : (
             <>
               <div className="cli-mode-layout">
-                {/* Action Buttons */}
-                <div className="cli-actions">
-                  <button 
-                    onClick={loadTokenBalances} 
-                    disabled={loadingTokens || !apiKey}
-                    className="cli-action-button"
-                  >
-                    {loadingTokens ? "Loading Balances..." : "Check Balances"}
-                  </button>
-                  
-                  <button 
-                    onClick={checkRewards} 
-                    disabled={loadingRewards || !apiKey}
-                    className="cli-action-button"
-                  >
-                    {loadingRewards ? "Loading Rewards..." : "Check Rewards"}
-                  </button>
-                  
-                  {selectedTokens.length > 0 && (
-                    <button 
-                      onClick={() => setShowSwapForm(true)}
-                      className="cli-action-button swap"
-                    >
-                      Swap {selectedTokens.length} Tokens
-                    </button>
-                  )}
-                  
-                  {selectedRewards.length > 0 && (
-                    <button 
-                      onClick={claimRewards}
-                      disabled={claimStatus.loading}
-                      className="cli-action-button claim"
-                    >
-                      Claim {selectedRewards.length} Rewards
-                    </button>
-                  )}
+                {/* CLI Action Commands */}
+                <div className="cli-main-terminal">
+                  <div className="cli-main-header">
+                    <span className="cli-prompt">berabundle$</span> help
+                  </div>
+                  <div className="cli-main-content">
+                    <div className="cli-command-row">
+                      <span className="cli-prompt">berabundle$</span> token-list
+                      <span 
+                        className={`cli-main-command ${loadingTokens ? 'loading' : ''}`} 
+                        onClick={loadingTokens || !apiKey ? null : loadTokenBalances}
+                        title="Check token balances"
+                      >
+                        --check-balances
+                      </span>
+                    </div>
+                    
+                    <div className="cli-command-row">
+                      <span className="cli-prompt">berabundle$</span> rewards
+                      <span 
+                        className={`cli-main-command ${loadingRewards ? 'loading' : ''}`} 
+                        onClick={loadingRewards || !apiKey ? null : checkRewards}
+                        title="Check claimable rewards"
+                      >
+                        --check-claimable
+                      </span>
+                    </div>
+                    
+                    {selectedTokens.length > 0 && (
+                      <div className="cli-command-row">
+                        <span className="cli-prompt">berabundle$</span> swap
+                        <span 
+                          className="cli-main-command swap" 
+                          onClick={() => setShowSwapForm(true)}
+                          title="Swap selected tokens"
+                        >
+                          --tokens {selectedTokens.length}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {selectedRewards.length > 0 && (
+                      <div className="cli-command-row">
+                        <span className="cli-prompt">berabundle$</span> claim
+                        <span 
+                          className={`cli-main-command claim ${claimStatus.loading ? 'loading' : ''}`} 
+                          onClick={claimStatus.loading ? null : claimRewards}
+                          title="Claim selected rewards"
+                        >
+                          --rewards {selectedRewards.length}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* CLI Terminals */}

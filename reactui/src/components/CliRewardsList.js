@@ -109,29 +109,33 @@ function CliRewardsList({ rewards = [], loading = false, error = null, onClaimSe
   return (
     <div className="cli-terminal">
       <div className="cli-header">
-        <span className="cli-prompt">berabundle$</span> rewards --claimable
+        <div className="cli-header-commands">
+          <div className="cli-header-main">
+            <span className="cli-prompt">berabundle$</span> rewards --claimable
+          </div>
+          {rewards.length > 0 && (
+            <div className="cli-header-selection">
+              <span className="cli-action">select</span>
+              <span 
+                className="cli-command-option" 
+                onClick={handleSelectAll}
+                title="Select all rewards"
+              >--all</span> | 
+              <span 
+                className="cli-command-option" 
+                onClick={handleSelectNone}
+                title="Deselect all rewards"
+              >--none</span> | 
+              <span 
+                className="cli-command-option" 
+                onClick={handleInvertSelection}
+                title="Invert selection"
+              >--invert</span>
+            </div>
+          )}
+        </div>
       </div>
       <div className="cli-content">
-        {rewards.length > 0 && (
-          <div className="cli-command-line">
-            <span className="cli-prompt">berabundle$</span> select 
-            <span 
-              className="cli-command-option" 
-              onClick={handleSelectAll}
-              title="Select all rewards"
-            >--all</span> | 
-            <span 
-              className="cli-command-option" 
-              onClick={handleSelectNone}
-              title="Deselect all rewards"
-            >--none</span> | 
-            <span 
-              className="cli-command-option" 
-              onClick={handleInvertSelection}
-              title="Invert selection"
-            >--invert</span>
-          </div>
-        )}
       
         {rewards.map((reward) => (
           <div 
