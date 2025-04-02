@@ -125,27 +125,35 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
   // If no valid tokens are selected
   if (!validTokens || validTokens.length === 0) {
     return (
-      <div className="swap-form">
-        <div className="swap-form-header">
-          <h2>Swap Tokens</h2>
-          <button className="close-button" onClick={onClose}>&times;</button>
+      <div className="cli-overlay-terminal">
+        <div className="cli-overlay-header">
+          <div className="cli-overlay-title">
+            <span className="cli-prompt">berabundle$</span> <span className="cli-overlay-command">swap --tokens 0</span>
+          </div>
+          <button className="cli-overlay-close" onClick={onClose}>&times;</button>
         </div>
-        <div className="swap-form-content">
-          <p>No valid tokens selected for swap. Please select non-BERA tokens from the list.</p>
+        <div className="cli-overlay-content">
+          <p className="cli-error">Error: No valid tokens selected for swap. Please select non-BERA tokens.</p>
+          <div className="cli-command-row" style={{marginTop: '20px'}}>
+            <span className="cli-prompt">berabundle$</span> 
+            <button className="cli-btn" onClick={onClose}>exit</button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="swap-form">
-      <div className="swap-form-header">
-        <h2>Swap Tokens</h2>
-        <button className="close-button" onClick={onClose}>&times;</button>
+    <div className="cli-overlay-terminal">
+      <div className="cli-overlay-header">
+        <div className="cli-overlay-title">
+          <span className="cli-prompt">berabundle$</span> <span className="cli-overlay-command">swap --tokens {validTokens.length}</span>
+        </div>
+        <button className="cli-overlay-close" onClick={onClose}>&times;</button>
       </div>
 
-      <div className="swap-form-content">
-        <p className="swap-instruction">Enter the amount for each token you want to swap:</p>
+      <div className="cli-overlay-content">
+        <div className="swap-instruction"># Enter amount for each token you want to swap</div>
 
         <div className="swap-tokens-list">
           {validTokens.map(token => (
@@ -222,19 +230,22 @@ function SwapForm({ selectedTokens, beraToken, onClose, onSwap }) {
         </div>
 
         <div className="swap-actions">
-          <button 
-            className="cancel-button" 
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button 
-            className="swap-button" 
-            onClick={handleSwap}
-            disabled={!isValid}
-          >
-            Swap Tokens
-          </button>
+          <div className="cli-command-row">
+            <span className="cli-prompt">berabundle$</span> 
+            <button 
+              className="cli-btn" 
+              onClick={onClose}
+            >
+              cancel
+            </button>
+            <button 
+              className="cli-btn cli-btn-swap" 
+              onClick={handleSwap}
+              disabled={!isValid}
+            >
+              execute-swap {isValid ? `--value $${totalValueUsd.toFixed(2)}` : '--invalid'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
