@@ -19,8 +19,40 @@ function CliRewardsList({ rewards = [], loading = false, error = null, onClaimSe
     newSelections[reward.id] = !newSelections[reward.id];
     setSelectedRewards(newSelections);
     
-    // Notify parent component about selected rewards
-    const selectedRewardsList = Object.entries(newSelections)
+    notifyParent(newSelections);
+  };
+  
+  // Select all rewards
+  const handleSelectAll = () => {
+    const newSelections = { ...selectedRewards };
+    rewards.forEach(reward => {
+      newSelections[reward.id] = true;
+    });
+    setSelectedRewards(newSelections);
+    
+    notifyParent(newSelections);
+  };
+  
+  // Deselect all rewards
+  const handleSelectNone = () => {
+    setSelectedRewards({});
+    onClaimSelected([]);
+  };
+  
+  // Invert selection
+  const handleInvertSelection = () => {
+    const newSelections = { ...selectedRewards };
+    rewards.forEach(reward => {
+      newSelections[reward.id] = !newSelections[reward.id];
+    });
+    setSelectedRewards(newSelections);
+    
+    notifyParent(newSelections);
+  };
+  
+  // Notify parent component about selection changes
+  const notifyParent = (selections) => {
+    const selectedRewardsList = Object.entries(selections)
       .filter(([_, isSelected]) => isSelected)
       .map(([id]) => rewards.find(r => r.id === id))
       .filter(r => r);
@@ -80,6 +112,27 @@ function CliRewardsList({ rewards = [], loading = false, error = null, onClaimSe
         <span className="cli-prompt">berabundle$</span> rewards --claimable
       </div>
       <div className="cli-content">
+        {rewards.length > 0 && (
+          <div className="cli-command-line">
+            <span className="cli-prompt">berabundle$</span> select 
+            <span 
+              className="cli-command-option" 
+              onClick={handleSelectAll}
+              title="Select all rewards"
+            >--all</span> | 
+            <span 
+              className="cli-command-option" 
+              onClick={handleSelectNone}
+              title="Deselect all rewards"
+            >--none</span> | 
+            <span 
+              className="cli-command-option" 
+              onClick={handleInvertSelection}
+              title="Invert selection"
+            >--invert</span>
+          </div>
+        )}
+      
         {rewards.map((reward) => (
           <div 
             key={reward.id}
@@ -92,7 +145,7 @@ function CliRewardsList({ rewards = [], loading = false, error = null, onClaimSe
               </div>
               <div className="cli-reward-title">
                 {reward.type === 'bgtStaker' 
-                  ? 'BGT Staker (Honey Pool)'
+                  ? 'BGT Staker Honey Fees'
                   : `${reward.name}${reward.protocol ? ` on ${reward.protocol}` : ''}`
                 }
               </div>
@@ -116,30 +169,7 @@ function CliRewardsList({ rewards = [], loading = false, error = null, onClaimSe
                 </>
               ) : reward.type === 'bgtStaker' ? (
                 <>
-                  <div className="cli-reward-detail">
-                    <span className="detail-label">Balance:</span> 
-                    <span className="detail-value">
-                      {parseFloat(reward.userBalance || 0).toFixed(2)}
-                    </span>
-                  </div>
-                  {reward.validatorBoosts && reward.validatorBoosts.activeBoosts && reward.validatorBoosts.activeBoosts.length > 0 && (
-                    <div className="cli-reward-detail boost">
-                      <span className="detail-label">Boost:</span> 
-                      <span className="detail-value">
-                        {reward.validatorBoosts.activeBoosts.length} Validators ({
-                          parseFloat(reward.validatorBoosts.totalActiveBoost || 0).toFixed(2)
-                        } BGT)
-                      </span>
-                    </div>
-                  )}
-                  {(!reward.validatorBoosts || !reward.validatorBoosts.activeBoosts) && reward.boostCount > 0 && (
-                    <div className="cli-reward-detail boost">
-                      <span className="detail-label">Boost:</span> 
-                      <span className="detail-value">
-                        {reward.boostCount} Validators ({parseFloat(reward.totalBoostedBGT || 0).toFixed(2)} BGT)
-                      </span>
-                    </div>
-                  )}
+                  {/* No additional details for BGT Staker - only showing pending fees below */}
                 </>
               ) : (
                 <div className="cli-reward-detail">

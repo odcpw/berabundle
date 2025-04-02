@@ -7,6 +7,8 @@ import CliValidatorBoosts from './components/CliValidatorBoosts';
 import ApiKeyInput from './components/ApiKeyInput';
 import MetadataManager from './components/MetadataManager';
 import SwapForm from './components/SwapForm';
+import ValidatorSelectionOverlay from './components/ValidatorSelectionOverlay';
+import ClaimSummaryOverlay from './components/ClaimSummaryOverlay';
 import tokenBridge from './services/TokenBridge';
 import metadataService from './services/MetadataService';
 import rewardsService from './services/RewardsService';
@@ -47,11 +49,18 @@ function App() {
   const [loadingBoosts, setLoadingBoosts] = useState(false);
   const [boostsError, setBoostsError] = useState('');
   
+  // Validator selection state
+  const [showValidatorSelection, setShowValidatorSelection] = useState(false);
+  const [validatorPreferences, setValidatorPreferences] = useState(null);
+  const [pendingRewardsForClaim, setPendingRewardsForClaim] = useState([]);
+  
+  // Claim summary state
+  const [showClaimSummary, setShowClaimSummary] = useState(false);
+  const [rewardsToProcess, setRewardsToProcess] = useState([]);
+  
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
   
-  // Always use CLI mode - GUI mode has been removed
-  const cliMode = true;
   
   // Network details based on Berachain
   const networkDetails = {
@@ -296,10 +305,61 @@ function App() {
     }
   }
   
-  // Claim rewards function
-  async function claimRewards() {
-    if (!account || !rewardsService.isInitialized() || selectedRewards.length === 0) return;
-    
+  // Handle validator preferences submission
+  const handleValidatorPreferencesSubmit = (preferences) => {
+    // Save preferences to localStorage
+    try {
+      // Format for localStorage - similar to the CLI format
+      const prefsToSave = {
+        validators: preferences.validators,
+        allocations: preferences.allocations
+      };
+      
+      // Create a boost_allocation-compatible format
+      const boostAllocations = {};
+      boostAllocations[account.toLowerCase()] = prefsToSave;
+      
+      // Save to localStorage to mimic the CLI flow
+      localStorage.setItem('boost_allocation', JSON.stringify(boostAllocations));
+      
+      console.log('Saved validator preferences:', preferences);
+      setValidatorPreferences(preferences);
+      
+      // Close validator selection and proceed to claim summary
+      setShowValidatorSelection(false);
+      setRewardsToProcess(pendingRewardsForClaim);
+      setShowClaimSummary(true);
+    } catch (err) {
+      console.error('Error saving validator preferences:', err);
+      setClaimStatus({
+        loading: false,
+        success: false,
+        error: 'Failed to save validator preferences'
+      });
+    }
+  };
+  
+  // Check for validator preferences
+  const checkValidatorPreferences = () => {
+    try {
+      // Read from localStorage
+      const storedPrefs = localStorage.getItem('boost_allocation');
+      if (storedPrefs) {
+        const allPrefs = JSON.parse(storedPrefs);
+        // Get preferences for current account
+        if (allPrefs[account.toLowerCase()]) {
+          return allPrefs[account.toLowerCase()];
+        }
+      }
+      return null;
+    } catch (err) {
+      console.warn('Error reading validator preferences:', err);
+      return null;
+    }
+  };
+  
+  // Proceed with claim after ensuring validator preferences
+  const proceedWithClaim = async (selectedRewardsToProcess) => {
     setClaimStatus({
       loading: true,
       success: false,
@@ -308,7 +368,7 @@ function App() {
     
     try {
       // Call rewards service to claim rewards
-      const result = await rewardsService.claimRewards(account, selectedRewards);
+      const result = await rewardsService.claimRewards(account, selectedRewardsToProcess);
       
       if (result.success) {
         setClaimStatus({
@@ -320,6 +380,9 @@ function App() {
         // Update the rewards list with remaining unclaimed rewards
         setRewards(result.remainingRewards || []);
         setSelectedRewards([]);
+        
+        // Clear pending rewards
+        setPendingRewardsForClaim([]);
         
         // Update token balances after claiming
         setTimeout(() => {
@@ -339,6 +402,38 @@ function App() {
         success: false,
         error: err.message || "Failed to claim rewards"
       });
+    }
+  };
+  
+  // Claim rewards function with validator preferences check
+  async function claimRewards() {
+    if (!account || !rewardsService.isInitialized() || selectedRewards.length === 0) return;
+    
+    // Check if BGT rewards are being claimed
+    const hasBgtRewards = selectedRewards.some(reward => 
+      reward.rewardToken && reward.rewardToken.symbol === 'BGT' && 
+      parseFloat(reward.earned) > 0
+    );
+    
+    // If claiming BGT rewards, check for validator preferences
+    if (hasBgtRewards) {
+      // Load existing preferences
+      const existingPrefs = checkValidatorPreferences();
+      
+      if (existingPrefs && existingPrefs.validators && existingPrefs.validators.length > 0) {
+        // We have preferences, show claim summary
+        setValidatorPreferences(existingPrefs);
+        setRewardsToProcess(selectedRewards);
+        setShowClaimSummary(true);
+      } else {
+        // No preferences set, show validator selection overlay
+        setPendingRewardsForClaim(selectedRewards);
+        setShowValidatorSelection(true);
+      }
+    } else {
+      // No BGT rewards, still show summary but without redelegation
+      setRewardsToProcess(selectedRewards);
+      setShowClaimSummary(true);
     }
   };
 
@@ -584,7 +679,6 @@ function App() {
     setShowSettings(!showSettings);
   };
   
-  // No toggle function needed as CLI is the only mode now
 
   return (
     <div className="App">
@@ -679,7 +773,6 @@ function App() {
             </div>
           ) : (
             <>
-              {/* CLI Mode Only */}
               <div className="cli-mode-layout">
                 {/* Action Buttons */}
                 <div className="cli-actions">
@@ -733,23 +826,22 @@ function App() {
                     />
                   </div>
                   
-                  <div className="cli-terminal-container">
+                  <div className="cli-terminal-container cli-rewards-column">
                     <CliRewardsList 
                       rewards={rewards}
                       loading={loadingRewards}
                       error={rewardsError}
                       onClaimSelected={handleRewardSelect}
                     />
+                    
+                    <div style={{ marginTop: '15px' }}>
+                      <CliValidatorBoosts 
+                        validatorBoosts={validatorBoosts}
+                        loading={loadingBoosts}
+                        error={boostsError}
+                      />
+                    </div>
                   </div>
-                </div>
-                
-                {/* Validator Boosts Terminal */}
-                <div className="cli-validator-terminal">
-                  <CliValidatorBoosts 
-                    validatorBoosts={validatorBoosts}
-                    loading={loadingBoosts}
-                    error={boostsError}
-                  />
                 </div>
                 
                 {/* Status Messages */}
@@ -809,6 +901,46 @@ function App() {
           />
         </div>
       )}
+      
+      {/* Validator Selection Overlay */}
+      <ValidatorSelectionOverlay
+        isOpen={showValidatorSelection}
+        onClose={() => {
+          setShowValidatorSelection(false);
+          setPendingRewardsForClaim([]);
+          setClaimStatus({
+            loading: false,
+            success: false,
+            error: 'Validator selection cancelled'
+          });
+        }}
+        userAddress={account}
+        onSubmit={handleValidatorPreferencesSubmit}
+        existingPreferences={validatorPreferences}
+      />
+      
+      {/* Claim Summary Overlay */}
+      <ClaimSummaryOverlay
+        isOpen={showClaimSummary}
+        onClose={(action) => {
+          setShowClaimSummary(false);
+          
+          if (action === 'editValidators') {
+            // Show validator selection overlay with existing preferences
+            setPendingRewardsForClaim(rewardsToProcess);
+            setShowValidatorSelection(true);
+          } else {
+            // Just close the overlay
+            setRewardsToProcess([]);
+          }
+        }}
+        selectedRewards={rewardsToProcess}
+        validatorPreferences={validatorPreferences}
+        onProceed={() => {
+          setShowClaimSummary(false);
+          proceedWithClaim(rewardsToProcess);
+        }}
+      />
       
       {/* Settings Panel */}
       {showSettings && (

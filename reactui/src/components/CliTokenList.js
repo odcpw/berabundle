@@ -24,6 +24,11 @@ function CliTokenList({
 }) {
   const [selectedTokens, setSelectedTokens] = React.useState({});
   
+  // Get non-native tokens
+  const selectableTokens = React.useMemo(() => {
+    return tokens.filter(t => !(t.isNative || t.address === 'native'));
+  }, [tokens]);
+  
   // Handle token selection
   const handleTokenSelect = (token) => {
     if (token.isNative || token.address === 'native') return;
@@ -32,8 +37,40 @@ function CliTokenList({
     newSelections[token.address] = !newSelections[token.address];
     setSelectedTokens(newSelections);
     
-    // Notify parent component about selected tokens
-    const selectedTokensList = Object.entries(newSelections)
+    notifyParent(newSelections);
+  };
+  
+  // Select all tokens
+  const handleSelectAll = () => {
+    const newSelections = { ...selectedTokens };
+    selectableTokens.forEach(token => {
+      newSelections[token.address] = true;
+    });
+    setSelectedTokens(newSelections);
+    
+    notifyParent(newSelections);
+  };
+  
+  // Deselect all tokens
+  const handleSelectNone = () => {
+    setSelectedTokens({});
+    onTokenSelect([]);
+  };
+  
+  // Invert selection
+  const handleInvertSelection = () => {
+    const newSelections = { ...selectedTokens };
+    selectableTokens.forEach(token => {
+      newSelections[token.address] = !newSelections[token.address];
+    });
+    setSelectedTokens(newSelections);
+    
+    notifyParent(newSelections);
+  };
+  
+  // Notify parent component about selection changes
+  const notifyParent = (selections) => {
+    const selectedTokensList = Object.entries(selections)
       .filter(([_, isSelected]) => isSelected)
       .map(([address]) => tokens.find(t => t.address === address))
       .filter(t => t);
@@ -90,6 +127,27 @@ function CliTokenList({
         <span className="cli-prompt">berabundle$</span> token-list --balances
       </div>
       <div className="cli-content">
+        {selectableTokens.length > 0 && (
+          <div className="cli-command-line">
+            <span className="cli-prompt">berabundle$</span> select 
+            <span 
+              className="cli-command-option" 
+              onClick={handleSelectAll}
+              title="Select all tokens"
+            >--all</span> | 
+            <span 
+              className="cli-command-option" 
+              onClick={handleSelectNone}
+              title="Deselect all tokens"
+            >--none</span> | 
+            <span 
+              className="cli-command-option" 
+              onClick={handleInvertSelection}
+              title="Invert selection"
+            >--invert</span>
+          </div>
+        )}
+        
         <div className="cli-table">
           {tokens.map((token, index) => (
             <div 

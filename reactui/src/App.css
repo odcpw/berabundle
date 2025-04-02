@@ -115,9 +115,6 @@
   gap: 20px;
 }
 
-/* Two column layout removed - using CLI mode only */
-
-/* GUI frame styles removed - using CLI mode only */
 
 h1 {
   color: cyan;
@@ -240,9 +237,7 @@ button:disabled {
   margin: 20px 0;
 }
 
-/* GUI button styles removed - using CLI action buttons only */
 
-/* CLI Mode Layout */
 .cli-mode-layout {
   width: 100%;
   display: flex;
@@ -308,10 +303,9 @@ button:disabled {
   min-height: 400px;
 }
 
-.cli-validator-terminal {
-  width: 100%;
-  margin-top: 20px;
-  min-height: 200px;
+.cli-rewards-column {
+  display: flex;
+  flex-direction: column;
 }
 
 .cli-status-messages {
@@ -352,6 +346,10 @@ button:disabled {
     max-width: 100%;
     margin-bottom: 20px;
   }
+  
+  .cli-rewards-column > div {
+    margin-bottom: 20px;
+  }
 }
 
 /* Swap Button Container */
@@ -362,7 +360,6 @@ button:disabled {
   margin-top: 20px;
 }
 
-/* GUI action button styles removed - using CLI action buttons only */
 
 /* Overlay Base Styles */
 .overlay-base {
@@ -487,7 +484,6 @@ button:disabled {
 }
 
 /* Swap Status Messages */
-/* GUI status styles removed - using CLI status indicators only */
 
 .loading-spinner {
   width: 30px;

@@ -31,6 +31,30 @@
   color: #f0f0f0;
 }
 
+.cli-command-line {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 4px 0;
+  font-weight: bold;
+  color: #aaa;
+  border-bottom: 1px dotted #444;
+}
+
+.cli-command-option {
+  margin-left: 8px;
+  margin-right: 8px;
+  cursor: pointer;
+  color: #32cd32; /* Green for tokens */
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  transition: color 0.2s;
+}
+
+.cli-command-option:hover {
+  color: #5dff5d;
+}
+
 .cli-table {
   width: 100%;
   margin-bottom: 16px;
