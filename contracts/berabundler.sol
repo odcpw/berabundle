@@ -2,7 +2,6 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 /**
@@ -12,8 +11,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
  * Includes reentrancy protection for all external calls.
  */
 contract BeraBundle is ReentrancyGuard {
-    using SafeERC20 for IERC20;
-
     // Native token constant
     address private constant NATIVE_TOKEN = address(0);
 
@@ -67,31 +64,31 @@ contract BeraBundle is ReentrancyGuard {
 
             if (op.operationType == TYPE_APPROVE) {
                 // Handle token approval
-                IERC20(op.tokenAddress).safeApprove(op.target, op.tokenAmount);
+                IERC20(op.tokenAddress).approve(op.target, op.tokenAmount);
                 emit OperationExecuted(TYPE_APPROVE, op.target, true);
             }
             else if (op.operationType == TYPE_REVOKE_APPROVAL) {
                 // Revoke token approval
-                IERC20(op.tokenAddress).safeApprove(op.target, 0);
+                IERC20(op.tokenAddress).approve(op.target, 0);
                 emit OperationExecuted(TYPE_REVOKE_APPROVAL, op.target, true);
             }
             else if (op.operationType == TYPE_SWAP) {
                 // Execute swap through OBRouter
-                (bool success, bytes memory returnData) = op.target.call{value: op.value}(op.data);
+                (bool success,) = op.target.call{value: op.value}(op.data);
                 require(success, "BeraBundle: swap failed");
                 emit OperationExecuted(TYPE_SWAP, op.target, success);
             }
             else if (op.operationType == TYPE_CLAIM_REWARDS) {
                 // Claim rewards ensuring they go to the caller
                 bytes memory callData = abi.encodeWithSignature("getRewards(address)", msg.sender);
-                (bool success, bytes memory returnData) = op.target.call(callData);
+                (bool success,) = op.target.call(callData);
                 require(success, "BeraBundle: reward claim failed");
                 emit OperationExecuted(TYPE_CLAIM_REWARDS, op.target, success);
                 emit RewardsClaimed(op.target, msg.sender);
             }
             else if (op.operationType == TYPE_BOOST) {
                 // Handle BGT boost
-                (bool success, bytes memory returnData) = op.target.call(op.data);
+                (bool success,) = op.target.call(op.data);
                 require(success, "BeraBundle: boost failed");
                 emit OperationExecuted(TYPE_BOOST, op.target, success);
             }
@@ -114,10 +111,11 @@ contract BeraBundle is ReentrancyGuard {
                     }
                 } else {
                     // ERC20 token disperse
-                    IERC20(op.tokenAddress).safeTransferFrom(msg.sender, address(this), totalAmount);
+                    IERC20 tokenContract = IERC20(op.tokenAddress);
+                    tokenContract.transferFrom(msg.sender, address(this), totalAmount);
 
                     for (uint256 j = 0; j < op.recipients.length; j++) {
-                        IERC20(op.tokenAddress).safeTransfer(op.recipients[j], op.amounts[j]);
+                        tokenContract.transfer(op.recipients[j], op.amounts[j]);
                     }
                 }
 
@@ -126,7 +124,7 @@ contract BeraBundle is ReentrancyGuard {
             }
             else if (op.operationType == TYPE_GENERIC_CALL) {
                 // Generic call for any other operation
-                (bool success, bytes memory returnData) = op.target.call{value: op.value}(op.data);
+                (bool success,) = op.target.call{value: op.value}(op.data);
                 require(success, "BeraBundle: operation failed");
                 emit OperationExecuted(TYPE_GENERIC_CALL, op.target, success);
             }
@@ -146,6 +144,7 @@ contract BeraBundle is ReentrancyGuard {
      * @param inputToken Input token address (address(0) for native token)
      * @param inputAmount Amount of input tokens
      * @param outputToken Output token address
+     * @param outputQuote Expected output amount
      * @param minOutputAmount Minimum acceptable output amount
      * @param pathDefinition Path definition from the Swap API
      * @param executor Executor address from the Swap API
@@ -164,8 +163,8 @@ contract BeraBundle is ReentrancyGuard {
     ) external payable nonReentrant {
         // Handle token transfers
         if (inputToken != NATIVE_TOKEN) {
-            IERC20(inputToken).safeTransferFrom(msg.sender, address(this), inputAmount);
-            IERC20(inputToken).safeApprove(router, inputAmount);
+            IERC20(inputToken).transferFrom(msg.sender, address(this), inputAmount);
+            IERC20(inputToken).approve(router, inputAmount);
         } else {
             require(msg.value >= inputAmount, "BeraBundle: insufficient value");
         }
@@ -186,12 +185,12 @@ contract BeraBundle is ReentrancyGuard {
         );
 
         // Execute swap
-        (bool success, bytes memory returnData) = router.call{value: inputToken == NATIVE_TOKEN ? inputAmount : 0}(callData);
+        (bool success,) = router.call{value: inputToken == NATIVE_TOKEN ? inputAmount : 0}(callData);
         require(success, "BeraBundle: swap failed");
 
         // Reset approval
         if (inputToken != NATIVE_TOKEN) {
-            IERC20(inputToken).safeApprove(router, 0);
+            IERC20(inputToken).approve(router, 0);
         }
 
         // Refund any excess value
@@ -210,7 +209,7 @@ contract BeraBundle is ReentrancyGuard {
      */
     function claimRewards(address rewardContract) external nonReentrant {
         bytes memory callData = abi.encodeWithSignature("getRewards(address)", msg.sender);
-        (bool success, bytes memory returnData) = rewardContract.call(callData);
+        (bool success,) = rewardContract.call(callData);
         require(success, "BeraBundle: reward claim failed");
 
         emit RewardsClaimed(rewardContract, msg.sender);
@@ -223,29 +222,29 @@ contract BeraBundle is ReentrancyGuard {
      */
     function boostBGT(address bgtToken, uint256 amount) external nonReentrant {
         // Transfer tokens from caller to this contract
-        IERC20(bgtToken).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(bgtToken).transferFrom(msg.sender, address(this), amount);
 
         // Approve BGT contract if needed
-        IERC20(bgtToken).safeApprove(bgtToken, amount);
+        IERC20(bgtToken).approve(bgtToken, amount);
 
         // Boost tokens
         bytes memory callData = abi.encodeWithSignature("boost(address,uint256)", msg.sender, amount);
-        (bool success, bytes memory returnData) = bgtToken.call(callData);
+        (bool success,) = bgtToken.call(callData);
         require(success, "BeraBundle: boost failed");
 
         // Reset approval
-        IERC20(bgtToken).safeApprove(bgtToken, 0);
+        IERC20(bgtToken).approve(bgtToken, 0);
 
         emit OperationExecuted(TYPE_BOOST, bgtToken, success);
     }
 
     /**
      * @notice Helper function to disperse tokens to multiple recipients
-     * @param token Token address (address(0) for native token)
+     * @param tokenAddress Token address (address(0) for native token)
      * @param recipients Array of recipient addresses
      * @param amounts Array of amounts to send to each recipient
      */
-    function disperse(address token, address[] calldata recipients, uint256[] calldata amounts) external payable nonReentrant {
+    function disperse(address tokenAddress, address[] calldata recipients, uint256[] calldata amounts) external payable nonReentrant {
         require(recipients.length == amounts.length, "BeraBundle: recipients and amounts length mismatch");
 
         uint256 totalAmount = 0;
@@ -253,7 +252,7 @@ contract BeraBundle is ReentrancyGuard {
             totalAmount += amounts[i];
         }
 
-        if (token == NATIVE_TOKEN) {
+        if (tokenAddress == NATIVE_TOKEN) {
             // Native token disperse
             require(msg.value >= totalAmount, "BeraBundle: insufficient value");
 
@@ -270,14 +269,15 @@ contract BeraBundle is ReentrancyGuard {
             }
         } else {
             // ERC20 token disperse
-            IERC20(token).safeTransferFrom(msg.sender, address(this), totalAmount);
+            IERC20 token = IERC20(tokenAddress);
+            token.transferFrom(msg.sender, address(this), totalAmount);
 
             for (uint256 i = 0; i < recipients.length; i++) {
-                IERC20(token).safeTransfer(recipients[i], amounts[i]);
+                token.transfer(recipients[i], amounts[i]);
             }
         }
 
-        emit TokensDispersed(token, totalAmount, recipients.length);
+        emit TokensDispersed(tokenAddress, totalAmount, recipients.length);
     }
 
     /**
