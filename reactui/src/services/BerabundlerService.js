@@ -2,12 +2,12 @@
  * BerabundlerService.js - Service for interacting with the Berabundler contract
  * 
  * This service handles bundling multiple transactions together for atomic execution
- * through the Berabundler contract on Berachain.
+ * through the Berabundle_SwapBundler contract on Berachain.
  */
 
 import { ethers } from 'ethers';
 
-// ABI for the BeraBundle contract (simplified to just what we need)
+// ABI for the Berabundle_SwapBundler contract
 const BERABUNDLE_ABI = [
   {
     "inputs": [
@@ -44,17 +44,17 @@ const BERABUNDLE_ABI = [
             "type": "uint256"
           },
           {
-            "internalType": "address[]",
-            "name": "recipients",
-            "type": "address[]"
+            "internalType": "address",
+            "name": "outputToken",
+            "type": "address"
           },
           {
-            "internalType": "uint256[]",
-            "name": "amounts",
-            "type": "uint256[]"
+            "internalType": "uint256",
+            "name": "minOutputAmount",
+            "type": "uint256"
           }
         ],
-        "internalType": "struct BeraBundle.Operation[]",
+        "internalType": "struct Berabundle_SwapBundler.Operation[]",
         "name": "operations",
         "type": "tuple[]"
       }
@@ -63,78 +63,20 @@ const BERABUNDLE_ABI = [
     "outputs": [],
     "stateMutability": "payable",
     "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "router",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "inputToken",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "inputAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "outputToken",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "outputQuote",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minOutputAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bytes",
-        "name": "pathDefinition",
-        "type": "bytes"
-      },
-      {
-        "internalType": "address",
-        "name": "executor",
-        "type": "address"
-      },
-      {
-        "internalType": "uint32",
-        "name": "referralCode",
-        "type": "uint32"
-      }
-    ],
-    "name": "swap",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
   }
 ];
 
 // Operation types
 const TYPE_APPROVE = 1;
-const TYPE_REVOKE_APPROVAL = 2;
 const TYPE_SWAP = 3;
-const TYPE_CLAIM_REWARDS = 4;
-const TYPE_BOOST = 5;
-const TYPE_DISPERSE = 6;
-const TYPE_GENERIC_CALL = 7;
 
 /**
- * Service for interacting with the Berabundler contract
+ * Service for interacting with the Berabundle_SwapBundler contract
  */
 class BerabundlerService {
   constructor() {
-    // Berabundler contract address on Berachain
-    this.contractAddress = '0x3072de9d5453937FA02C045883Caf363e0ea3c83';
+    // Berabundler_SwapBundler contract address on Berachain
+    this.contractAddress = '0x759CD19632352dA4798D9e96562bEe571cf7C191';
     this.provider = null;
     this.contract = null;
   }
@@ -179,8 +121,8 @@ class BerabundlerService {
         value: 0,
         tokenAddress: tx.token.address, // The token contract address
         tokenAmount: ethers.constants.MaxUint256.toString(), // Max approval
-        recipients: [],
-        amounts: []
+        outputToken: ethers.constants.AddressZero, // Not used for approvals
+        minOutputAmount: 0 // Not used for approvals
       };
     }).filter(op => op !== null); // Filter out any invalid operations
   }
@@ -194,83 +136,28 @@ class BerabundlerService {
     return swapTxs.map(tx => {
       console.log("Creating operation for swap:", JSON.stringify(tx, null, 2));
       
-      // Parse and normalize the value
-      let valueHex;
-      try {
-        if (!tx.value || tx.value === '0x0' || tx.value === '0x00' || tx.value === '0') {
-          valueHex = 0;
-        } else if (typeof tx.value === 'string') {
-          if (tx.value.startsWith('0x')) {
-            // Convert hex string to number
-            valueHex = ethers.BigNumber.from(tx.value).toString();
-          } else {
-            // Convert decimal string to number
-            valueHex = ethers.BigNumber.from(tx.value).toString();
-          }
-        } else if (tx.value._isBigNumber) {
-          // Already a BigNumber
-          valueHex = tx.value.toString();
-        } else {
-          // Default to string representation
-          valueHex = String(tx.value);
-        }
-      } catch (error) {
-        console.error("Error parsing value:", error);
-        valueHex = "0";
-      }
-      
-      console.log(`Normalized value: ${tx.value} => ${valueHex}`);
-      
       // Check if this is a native token or ERC20 token swap
       const isNativeToken = tx.token.address === 'native' || tx.token.symbol === 'BERA';
       
-      // For ERC20 tokens, we need to set the tokenAddress and tokenAmount fields
-      // For native token (BERA), we use the zero address and zero amount
-      const tokenAddress = isNativeToken ? 
-        "0x0000000000000000000000000000000000000000" : 
-        tx.token.address;
+      // Extract swapParams for the swap
+      const swapParams = tx.swapParams || {};
       
-      const tokenAmount = isNativeToken ? 
-        "0" : 
-        tx.token.amountIn;
-      
-      console.log(`Swap operation for token: ${isNativeToken ? 'Native BERA' : tx.token.symbol}`);
-      console.log(`Using tokenAddress: ${tokenAddress}`);
-      console.log(`Using tokenAmount: ${tokenAmount}`);
-      
+      // Use API's transaction data directly
       return {
         operationType: TYPE_SWAP,
-        target: tx.to,
-        data: tx.data,
-        value: valueHex,
-        tokenAddress: tokenAddress,
-        tokenAmount: tokenAmount,
-        recipients: [],
-        amounts: []
+        target: tx.to, // Router address from API
+        data: tx.data, // Use exact data from API response
+        value: tx.value || "0",
+        tokenAddress: isNativeToken ? ethers.constants.AddressZero : tx.token.address,
+        tokenAmount: isNativeToken ? 0 : tx.token.amountIn,
+        outputToken: swapParams.outputToken || ethers.constants.AddressZero,
+        minOutputAmount: swapParams.minOutput || 0
       };
     });
   }
 
   /**
-   * Create operations for revoking approvals
-   * @param {Array} approvalTxs - Array of approval transactions to revoke
-   * @returns {Array} Array of Operation objects for revoking approvals
-   */
-  createRevokeApprovalOperations(approvalTxs) {
-    return approvalTxs.map(tx => ({
-      operationType: TYPE_REVOKE_APPROVAL,
-      target: tx.to,
-      data: "0x", // We don't need data for revocations as the contract handles it
-      value: 0,
-      tokenAddress: tx.token.address,
-      tokenAmount: 0,
-      recipients: [],
-      amounts: []
-    }));
-  }
-
-  /**
-   * Execute a bundle of transactions through the Berabundler contract
+   * Execute a bundle of transactions through the Berabundle_SwapBundler contract
    * @param {Object} bundle - Bundle containing approvals and swap transactions
    * @returns {Promise<Object>} Transaction response
    */
@@ -280,25 +167,28 @@ class BerabundlerService {
     }
 
     try {
-      console.log("Executing bundle through Berabundler...");
+      console.log("Executing bundle through Berabundle_SwapBundler...");
       
       // Extract transactions from the bundle
       const approvalTxs = bundle.approvalTxs || [];
+      const bundlerApprovalTxs = bundle.bundlerApprovalTxs || [];
       const swapTxs = bundle.swapTxs || [];
       
       console.log("Swap transactions:", JSON.stringify(swapTxs, null, 2));
       
+      // Combine approvalTxs and bundlerApprovalTxs since they're both approvals
+      const allApprovalTxs = [...approvalTxs, ...bundlerApprovalTxs];
+      
       // Create operations for the bundle
       const operations = [
-        ...this.createApprovalOperations(approvalTxs),
-        ...this.createSwapOperations(swapTxs),
-        ...this.createRevokeApprovalOperations(approvalTxs) // Revoke approvals after swaps
+        ...this.createApprovalOperations(allApprovalTxs),
+        ...this.createSwapOperations(swapTxs)
       ];
       
-      console.log(`Created ${operations.length} operations for Berabundler`);
+      console.log(`Created ${operations.length} operations for SwapBundler`);
       console.log("Operations:", JSON.stringify(operations, null, 2));
       
-      // Calculate total value needed for ETH transfers
+      // Calculate total value needed for BERA transfers
       let totalValue = ethers.BigNumber.from(0);
       
       operations.forEach(op => {
@@ -313,11 +203,11 @@ class BerabundlerService {
       
       console.log(`Total value needed: ${ethers.utils.formatEther(totalValue)} BERA`);
 
-      // For testing, let's try with a higher gas limit
-      const gasLimit = 2000000; // 2 million gas
+      // Gas limit
+      const gasLimit = 5000000; // 5 million gas
       console.log(`Setting gas limit to ${gasLimit}`);
 
-      // Execute the bundle with higher gas limit
+      // Execute the bundle
       const tx = await this.contract.executeBundle(
         operations,
         { 
@@ -340,7 +230,6 @@ class BerabundlerService {
     } catch (error) {
       console.error("Error executing bundle:", error);
       
-      // Try to extract more detailed error information
       if (error.error && error.error.message) {
         console.error("Detailed error:", error.error.message);
       }
@@ -353,7 +242,7 @@ class BerabundlerService {
   }
   
   /**
-   * Execute a direct swap using the BeraBundle.swap function
+   * Execute a direct swap using the Berabundle_SwapBundler contract
    * @param {Object} swapTx - Swap transaction details from the OogaBooga API
    * @returns {Promise<Object>} Transaction response
    */
@@ -364,143 +253,36 @@ class BerabundlerService {
 
     try {
       console.log("[DEBUG] ======= EXECUTING DIRECT SWAP =======");
-      console.log("[DEBUG] Executing direct swap through Berabundler.swap...");
+      console.log("[DEBUG] Executing direct swap through SwapBundler...");
       console.log("[DEBUG] Swap transaction from API:", JSON.stringify(swapTx, null, 2));
       
-      // Use swapParams if provided by the API; otherwise, extract individually.
       const swapParams = swapTx.swapParams || {};
       
-      // 1. Router Address – prefer swapParams.router, otherwise swapTx.to
-      const routerAddress = swapParams.router || swapTx.to;
-      if (!routerAddress) {
-        throw new Error("Router address missing from API response");
-      }
-      console.log(`[DEBUG] Router: ${routerAddress}`);
-      
-      // 2. Input Token
+      // Create a single operation for the swap
       const isNativeToken = swapTx.token.address === 'native' || swapTx.token.symbol === 'BERA';
-      const inputToken = isNativeToken 
-        ? "0x0000000000000000000000000000000000000000" 
-        : (swapParams.inputToken || swapTx.token.address);
-      if (!inputToken) {
-        throw new Error("Input token missing from API response");
-      }
-      console.log(`[DEBUG] Input token: ${inputToken}`);
       
-      // 3. Input Amount
-      const inputAmount = swapParams.inputAmount || swapTx.token.amountIn;
-      if (!inputAmount) {
-        throw new Error("Input amount missing from API response");
-      }
-      console.log(`[DEBUG] Input amount: ${inputAmount}`);
+      // Create an operation structure that matches the Berabundle_SwapBundler contract
+      const operation = {
+        operationType: TYPE_SWAP,
+        target: swapTx.to, // Router address from API
+        data: swapTx.data, // Use exact data from API response
+        value: swapTx.value || "0",
+        tokenAddress: isNativeToken ? ethers.constants.AddressZero : swapTx.token.address,
+        tokenAmount: isNativeToken ? 0 : swapTx.token.amountIn,
+        outputToken: swapParams.outputToken || ethers.constants.AddressZero,
+        minOutputAmount: swapParams.minOutput || 0
+      };
       
-      // 4. Output Token – default to native (zero address) if not specified
-      const outputToken = swapParams.outputToken || ((swapTx.quote && swapTx.quote.tokenOut) 
-                            ? swapTx.quote.tokenOut 
-                            : "0x0000000000000000000000000000000000000000");
-      console.log(`[DEBUG] Output token: ${outputToken}`);
-      
-      // 5. Output Quote – expected output amount
-      const outputQuote = swapParams.outputQuote || (swapTx.quote && (swapTx.quote.expectedAmountOut || swapTx.quote.assumedAmountOut));
-      if (!outputQuote) {
-        throw new Error("Output quote missing from API response");
-      }
-      console.log(`[DEBUG] Output quote: ${outputQuote}`);
-      
-      // 6. Minimum Output Amount
-      const minOutputAmount = swapParams.minOutput || (swapTx.quote && swapTx.quote.minAmountOut);
-      if (!minOutputAmount) {
-        throw new Error("Minimum output amount missing from API response");
-      }
-      console.log(`[DEBUG] Min output: ${minOutputAmount}`);
-      
-      // 7. Path Definition – use swapParams.pathDefinition if available, else fallback
-      const pathDefinition = swapParams.pathDefinition || (swapTx.quote && (swapTx.quote.path || (swapTx.quote.routerParams && swapTx.quote.routerParams.path))) || "0x";
-      console.log(`[DEBUG] Path definition: ${pathDefinition}`);
-      
-      // 8. Executor – try swapParams.executor then API fields then signer address
-      let executor = swapParams.executor;
-      if (!executor) {
-        if (swapTx.recipient) {
-          executor = swapTx.recipient;
-        } else if (swapTx.quote && swapTx.quote.to) {
-          executor = swapTx.quote.to;
-        } else {
-          executor = await this.signer.getAddress();
-        }
-      }
-      console.log(`[DEBUG] Executor: ${executor}`);
-      
-      // 9. Referral Code – from swapParams or default to 0
-      const referralCode = swapParams.referralCode !== undefined ? swapParams.referralCode : (swapTx.quote && swapTx.quote.referralCode) || 0;
-      console.log(`[DEBUG] Referral code: ${referralCode}`);
+      console.log("[DEBUG] Operation for direct swap:", JSON.stringify(operation, null, 2));
       
       const gasLimit = 2000000;
       console.log(`[DEBUG] Setting gas limit to ${gasLimit}`);
       
-      // Log all parameters being sent to the contract
-      console.log("[DEBUG] Contract call parameters:");
-      console.log({
-        routerAddress,
-        inputToken,
-        inputAmount: inputAmount.toString(),
-        outputToken,
-        outputQuote: outputQuote.toString(),
-        minOutputAmount: minOutputAmount.toString(),
-        pathDefinition,
-        executor,
-        referralCode,
-        value: isNativeToken ? inputAmount.toString() : "0",
-        gasLimit
-      });
-
-      // First try callStatic to get the revert reason
-      try {
-        console.log("[DEBUG] Attempting callStatic to debug potential revert reason...");
-        await this.contract.callStatic.swap(
-          routerAddress,
-          inputToken,
-          inputAmount,
-          outputToken,
-          outputQuote,
-          minOutputAmount,
-          pathDefinition,
-          executor,
-          referralCode,
-          { 
-            value: isNativeToken ? inputAmount : 0,
-            gasLimit: gasLimit
-          }
-        );
-        console.log("[DEBUG] callStatic succeeded - no revert expected");
-      } catch (staticError) {
-        console.error("[DEBUG] callStatic revealed revert reason:", staticError);
-        console.error("[DEBUG] Error details:", JSON.stringify(staticError, null, 2));
-        if (staticError.errorArgs) {
-          console.error("[DEBUG] Error arguments:", staticError.errorArgs);
-        }
-        if (staticError.errorName) {
-          console.error("[DEBUG] Error name:", staticError.errorName);
-        }
-        if (staticError.reason) {
-          console.error("[DEBUG] Error reason:", staticError.reason);
-        }
-      }
-      
-      console.log("[DEBUG] Sending transaction to contract...");
-      // Call the contract's swap method with parameters in the correct order.
-      const tx = await this.contract.swap(
-        routerAddress,
-        inputToken,
-        inputAmount,
-        outputToken,
-        outputQuote,
-        minOutputAmount,
-        pathDefinition,
-        executor,
-        referralCode,
+      // Execute as a single-operation bundle
+      const tx = await this.contract.executeBundle(
+        [operation],
         { 
-          value: isNativeToken ? inputAmount : 0,
+          value: isNativeToken ? (swapTx.value || 0) : 0,
           gasLimit: gasLimit
         }
       );
@@ -520,7 +302,6 @@ class BerabundlerService {
       console.log("[DEBUG] Waiting for transaction confirmation...");
       const receipt = await tx.wait();
       console.log(`[DEBUG] Transaction confirmed in block ${receipt.blockNumber}`);
-      console.log("[DEBUG] Transaction receipt:", JSON.stringify(receipt, null, 2));
       console.log("[DEBUG] ======= DIRECT SWAP COMPLETE =======");
       
       return { success: true, hash: tx.hash, receipt };
@@ -530,18 +311,96 @@ class BerabundlerService {
       if (error.error && error.error.message) {
         console.error("[DEBUG] Detailed error:", error.error.message);
       }
-      // Log any blockchain error data that might be available
-      if (error.code) {
-        console.error("[DEBUG] Error code:", error.code);
-      }
-      if (error.transaction) {
-        console.error("[DEBUG] Error transaction:", JSON.stringify(error.transaction, null, 2));
-      }
-      if (error.receipt) {
-        console.error("[DEBUG] Error receipt:", JSON.stringify(error.receipt, null, 2));
-      }
       
       return { success: false, error: error.message };
+    }
+  }
+  /**
+   * Execute multiple token swaps in a single bundle transaction
+   * @param {Array} swapTxs - Array of swap transactions
+   * @returns {Promise<Object>} Transaction response
+   */
+  async executeBundledSwaps(swapTxs) {
+    if (!this.isInitialized()) {
+        throw new Error("BerabundlerService not initialized");
+    }
+
+    try {
+        console.log(`Executing bundled swaps for ${swapTxs.length} tokens...`);
+        
+        // Create operations for each swap
+        const operations = swapTxs.map(tx => {
+            const swapParams = tx.swapParams || {};
+            if (!swapParams) {
+                throw new Error(`Missing swapParams for token ${tx.token.symbol}`);
+            }
+            
+            const isNativeToken = tx.token.address === 'native' || tx.token.symbol === 'BERA';
+            const inputToken = isNativeToken ? ethers.constants.AddressZero : tx.token.address;
+            const inputAmount = tx.token.amountIn;
+            
+            return {
+                operationType: TYPE_SWAP,
+                target: tx.to, // Router address
+                data: tx.data, // Original router call data
+                value: isNativeToken ? inputAmount : 0,
+                tokenAddress: inputToken,
+                tokenAmount: isNativeToken ? 0 : inputAmount,
+                outputToken: swapParams.outputToken || ethers.constants.AddressZero,
+                minOutputAmount: swapParams.minOutput || 0
+            };
+        });
+        
+        // Calculate total value for native token transfers
+        let totalValue = ethers.BigNumber.from(0);
+        operations.forEach(op => {
+            if (op.value && op.value !== "0") {
+                const opValue = typeof op.value === 'string' ? 
+                    ethers.BigNumber.from(op.value) : 
+                    op.value;
+                
+                totalValue = totalValue.add(opValue);
+            }
+        });
+        
+        console.log(`Total value needed: ${ethers.utils.formatEther(totalValue)} BERA`);
+        console.log(`Created ${operations.length} operations for swaps`);
+        
+        // Higher gas limit for the bundle
+        const gasLimit = 5000000;
+        console.log(`Setting gas limit to ${gasLimit}`);
+        
+        // Execute the bundle 
+        const tx = await this.contract.executeBundle(
+            operations,
+            { 
+                value: totalValue,
+                gasLimit: gasLimit
+            }
+        );
+        
+        console.log(`Transaction sent: ${tx.hash}`);
+        
+        // Wait for the transaction to be mined
+        const receipt = await tx.wait();
+        console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
+        
+        return {
+            success: true,
+            hash: tx.hash,
+            receipt
+        };
+    } catch (error) {
+        console.error("Error executing bundled swaps:", error);
+        
+        if (error.error && error.error.message) {
+            console.error("Detailed error:", error.error.message);
+        }
+        
+        return {
+            success: false,
+            error: error.message
+        };
     }
   }
 }

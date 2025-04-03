@@ -13,6 +13,7 @@ const networks = {
         honeyTokenAddress: '0x7EeCA4205fF31f947EdBd49195a7A88E6A91161B', // Added HONEY token address
         validatorBoostAddress: '0x656b95E550C07a9ffe548bd4085c72418Ceb1dba', // BGT token contract (for validator boosts)
         delegationRewardsAddress: '0xBDDba144482049382eC79CadfA02f0fa0F462dE3', // Delegation rewards contract address
+        swapBundlerAddress: '0x759CD19632352dA4798D9e96562bEe571cf7C191', // BeraBundle_SwapBundler contract address
         
         // Safe configuration
         safe: {
